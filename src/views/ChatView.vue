@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { ref, nextTick } from 'vue';
+import { ref, onMounted, nextTick } from 'vue';
 import { useChatStore } from '@/stores/chat';
 
 const store = useChatStore();
 const input = ref('');
 const detail = ref('');
 const listEl = ref<HTMLElement | null>(null);
+
+onMounted(() => {
+  store.loadWorkspaces();
+});
 
 async function submit() {
   const text = input.value.trim();
@@ -29,11 +33,14 @@ async function submit() {
         class="bar-url"
       />
       <label class="bar-label">ws</label>
-      <input
+      <select
         v-model="store.workspaceName"
-        placeholder="demo"
-        class="bar-name"
-      />
+        class="bar-select"
+        @focus="store.loadWorkspaces()"
+      >
+        <option value="" disabled>select…</option>
+        <option v-for="w in store.workspaces" :key="w" :value="w">{{ w }}</option>
+      </select>
       <button @click="store.clear()" class="bar-clear">clear</button>
     </header>
 
@@ -94,7 +101,7 @@ async function submit() {
 }
 .bar-label { color: #888; font-size: 13px; flex-shrink: 0; }
 .bar-url { flex: 1; }
-.bar-name { width: 120px; }
+.bar-select { width: 120px; }
 .bar-clear { flex-shrink: 0; }
 .chat-list {
   flex: 1;
@@ -119,11 +126,13 @@ async function submit() {
   font-weight: 600;
 }
 .chat-msg-detail {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   white-space: pre-wrap;
   font-family: inherit;
-  color: #aaa;
-  font-size: 14px;
+  color: #999;
+  font-size: 13px;
+  border-left: 2px solid #444;
+  padding-left: 10px;
 }
 .chat-msg--user .chat-msg-brief { color: #ccc; }
 .chat-msg--manager .chat-msg-brief { color: #fff; }
