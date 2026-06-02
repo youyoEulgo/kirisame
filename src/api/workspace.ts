@@ -5,7 +5,7 @@ export async function sendToWorkspace(
   name: string,
   req: WorkspaceChatRequest,
 ): Promise<WorkspaceChatResponse> {
-  const res = await fetch(`${server}/ws/${name}/chat`, {
+  const res = await fetch(`${server}/workspace/${name}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
@@ -17,7 +17,7 @@ export async function sendToWorkspace(
 }
 
 export async function fetchBoardStatus(server: string, name: string): Promise<BoardStatus> {
-  const res = await fetch(`${server}/ws/${name}/tasks`);
+  const res = await fetch(`${server}/workspace/${name}/tasks`);
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);
   }
@@ -43,7 +43,7 @@ export interface ConversationMessage {
 }
 
 export async function fetchRecent(server: string, name: string): Promise<WorklogEntry[]> {
-  const res = await fetch(`${server}/ws/${name}/recent`);
+  const res = await fetch(`${server}/workspace/${name}/recent`);
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);
   }
@@ -54,7 +54,7 @@ export async function fetchConversation(
   server: string,
   name: string,
 ): Promise<ConversationMessage[]> {
-  const res = await fetch(`${server}/ws/${name}/conversation`);
+  const res = await fetch(`${server}/workspace/${name}/conversation`);
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}`);
   }

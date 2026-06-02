@@ -61,7 +61,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function streamEvents(taskId: string): Promise<void> {
     return new Promise((resolve) => {
-      const url = `${serverUrl.value}/ws/${workspaceName.value}/events/${taskId}`;
+      const url = `${serverUrl.value}/workspace/${workspaceName.value}/events/${taskId}`;
       const es = new EventSource(url);
       let currentMsgIdx = -1;
       let lastHadFinish = false;
