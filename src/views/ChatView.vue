@@ -3,7 +3,6 @@ import { ref, onMounted, nextTick } from 'vue';
 import { useChatStore } from '@/stores/chat';
 
 const store = useChatStore();
-const input = ref('');
 const detail = ref('');
 const listEl = ref<HTMLElement | null>(null);
 
@@ -12,12 +11,15 @@ onMounted(() => {
 });
 
 async function submit() {
-  const text = input.value.trim();
-  if (!text || store.loading) return;
-  input.value = '';
-  const d = detail.value.trim();
+  const text = detail.value.trim();
+  if (!text || (store.loading && !store.activeRequest)) return;
   detail.value = '';
-  await store.send(text, d || undefined);
+
+  if (store.activeRequest) {
+    await store.replyToRequest(store.activeRequest.session_id, text, '');
+  } else {
+    store.send(text);
+  }
   await nextTick();
   listEl.value?.scrollTo({ top: listEl.value.scrollHeight, behavior: 'smooth' });
 }
@@ -41,8 +43,24 @@ async function submit() {
         <option value="" disabled>select…</option>
         <option v-for="w in store.workspaces" :key="w" :value="w">{{ w }}</option>
       </select>
+      <span v-if="store.boardPublishCount > 0" class="bar-pending">
+        {{ store.boardPublishCount }}
+      </span>
       <button @click="store.clear()" class="bar-clear">clear</button>
     </header>
+
+    <div v-if="store.workspaceName" class="member-bar">
+      <span
+        v-for="(state, id) in store.memberStates"
+        :key="id"
+        :class="['member-tag', state]"
+      >
+        {{ id }}
+      </span>
+      <span v-if="!Object.keys(store.memberStates).length" class="member-tag empty">
+        connecting…
+      </span>
+    </div>
 
     <div ref="listEl" class="chat-list">
       <div v-if="!store.messages.length" class="chat-empty">
@@ -65,20 +83,32 @@ async function submit() {
     </div>
 
     <form @submit.prevent="submit" class="chat-input-wrap">
-      <div class="chat-input-group">
-        <input
-          v-model="input"
-          class="chat-input-brief"
-          placeholder="brief — what do you want done?"
-          @keydown.enter.exact="submit"
-        />
-        <input
+      <div v-if="store.activeRequest" class="reply-context">
+        回复 {{ store.activeRequest.from }}: {{ store.activeRequest.brief }}
+        <button
+          type="button"
+          @click="store.cancelActiveRequest()"
+          class="reply-cancel"
+        >
+          取消
+        </button>
+      </div>
+      <div class="chat-input-row">
+        <textarea
           v-model="detail"
           class="chat-input-detail"
-          placeholder="detail (optional)"
+          rows="3"
+          :placeholder="store.activeRequest ? '输入你的回复…' : 'type a message…'"
+          @keydown.enter.exact.prevent="submit"
         />
+        <button
+          type="submit"
+          :disabled="store.loading && !store.activeRequest"
+          class="chat-send"
+        >
+          {{ store.activeRequest ? 'finish' : 'send' }}
+        </button>
       </div>
-      <button type="submit" :disabled="store.loading" class="chat-send">send</button>
     </form>
   </div>
 </template>
@@ -99,10 +129,20 @@ async function submit() {
   border-bottom: 1px solid #333;
   flex-shrink: 0;
 }
-.bar-label { color: #888; font-size: 13px; flex-shrink: 0; }
-.bar-url { flex: 1; }
-.bar-select { width: 120px; }
-.bar-clear { flex-shrink: 0; }
+.bar-label {
+  color: #888;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.bar-url {
+  flex: 1;
+}
+.bar-select {
+  width: 120px;
+}
+.bar-clear {
+  flex-shrink: 0;
+}
 .chat-list {
   flex: 1;
   overflow-y: auto;
@@ -134,36 +174,46 @@ async function submit() {
   border-left: 2px solid #444;
   padding-left: 10px;
 }
-.chat-msg--user .chat-msg-brief { color: #ccc; }
-.chat-msg--manager .chat-msg-brief { color: #fff; }
-.thinking { color: #888; font-weight: 400; }
-.chat-error { color: #f66; margin-top: 8px; }
+.chat-msg--user .chat-msg-brief {
+  color: #ccc;
+}
+.chat-msg--manager .chat-msg-brief {
+  color: #fff;
+}
+.thinking {
+  color: #888;
+  font-weight: 400;
+}
+.chat-error {
+  color: #f66;
+  margin-top: 8px;
+}
 .chat-input-wrap {
   display: flex;
+  flex-direction: column;
   gap: 8px;
   padding: 12px;
   border-top: 1px solid #333;
   flex-shrink: 0;
 }
-.chat-input-group { flex: 1; display: flex; flex-direction: column; gap: 6px; }
-.chat-input-brief {
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+}
+.chat-input-detail {
+  flex: 1;
   font: inherit;
-  padding: 6px 8px;
+  padding: 8px;
   background: #1a1a1a;
   color: #fff;
   border: 1px solid #444;
   border-radius: 4px;
+  resize: vertical;
 }
-.chat-input-detail {
-  font: inherit;
-  font-size: 14px;
-  padding: 6px 8px;
-  background: #1a1a1a;
-  color: #aaa;
-  border: 1px solid #444;
-  border-radius: 4px;
+.chat-send {
+  flex-shrink: 0;
+  padding: 0 16px;
 }
-.chat-send { flex-shrink: 0; padding: 0 16px; }
 button {
   background: #333;
   color: #fff;
@@ -172,7 +222,9 @@ button {
   cursor: pointer;
   font: inherit;
 }
-button:disabled { opacity: 0.4; }
+button:disabled {
+  opacity: 0.4;
+}
 input[type='text'] {
   background: #1a1a1a;
   color: #fff;
@@ -180,5 +232,61 @@ input[type='text'] {
   border-radius: 4px;
   padding: 4px 8px;
   font: inherit;
+}
+select {
+  background: #1a1a1a;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+}
+.bar-pending {
+  font-size: 12px;
+  background: #333;
+  color: #aaa;
+  padding: 2px 6px;
+  border-radius: 8px;
+  min-width: 18px;
+  text-align: center;
+}
+.member-bar {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.member-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: #222;
+  color: #888;
+  white-space: nowrap;
+}
+.member-tag.working {
+  color: #5f5;
+}
+.member-tag.idle {
+  color: #888;
+}
+.member-tag.empty {
+  color: #555;
+}
+.reply-context {
+  font-size: 13px;
+  color: #cc5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.reply-cancel {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 12px;
 }
 </style>

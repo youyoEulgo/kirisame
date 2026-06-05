@@ -1,9 +1,17 @@
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { defineStore } from 'pinia';
-import { sendToWorkspace, fetchWorkspaces } from '@/api/workspace';
+import { sendToWorkspace, fetchWorkspaces, replyToHumanRequest } from '@/api/workspace';
 
 export interface DisplayMessage {
   role: 'user' | 'manager';
+  brief: string;
+  detail: string;
+}
+
+export interface InboxItem {
+  session_id: string;
+  from: string;
+  to: string;
   brief: string;
   detail: string;
 }
@@ -40,16 +48,89 @@ export const useChatStore = defineStore('chat', () => {
   const loading = ref(false);
   const error = ref<string | null>(null);
 
-  async function send(brief: string, detail?: string) {
-    const text = brief.trim();
+  // workspace stream state
+  let wsStream: EventSource | null = null;
+  const boardPublishCount = ref(0);
+  const memberStates = ref<Record<string, string>>({});
+  const inbox = ref<InboxItem[]>([]);
+  const activeRequest = ref<InboxItem | null>(null);
+
+  function connectStream() {
+    if (!workspaceName.value) return;
+    if (wsStream) {
+      wsStream.close();
+      wsStream = null;
+    }
+
+    const url = `${serverUrl.value}/workspace/${workspaceName.value}/stream`;
+    wsStream = new EventSource(url);
+
+    wsStream.onmessage = (e) => {
+      try {
+        const event = JSON.parse(e.data);
+        switch (event.type) {
+          case 'board_update':
+            boardPublishCount.value = event.publish_count ?? 0;
+            break;
+          case 'member_status':
+            memberStates.value = {
+              ...memberStates.value,
+              [event.member_id]: event.state,
+            };
+            break;
+          case 'human_request': {
+            const item: InboxItem = {
+              session_id: event.session_id ?? '',
+              from: event.from ?? '',
+              to: event.to ?? '',
+              brief: event.brief ?? '',
+              detail: event.detail ?? '',
+            };
+            inbox.value.push(item);
+            if (!activeRequest.value) {
+              activeRequest.value = item;
+            }
+            messages.value.push({
+              role: 'manager',
+              brief: `📨 ${item.from} → ${item.to}: ${item.brief}`,
+              detail: item.detail,
+            });
+            break;
+          }
+        }
+      } catch {
+        // ignore parse errors
+      }
+    };
+
+    wsStream.onerror = () => {
+      wsStream?.close();
+      wsStream = null;
+      setTimeout(connectStream, 2000);
+    };
+  }
+
+  watch(workspaceName, () => {
+    memberStates.value = {};
+    boardPublishCount.value = 0;
+    inbox.value = [];
+    activeRequest.value = null;
+    connectStream();
+  });
+
+  async function send(detail: string) {
+    const text = detail.trim();
     if (!text || !workspaceName.value) return;
 
-    messages.value.push({ role: 'user', brief: text, detail: detail ?? '' });
+    messages.value.push({ role: 'user', brief: '用户消息', detail: text });
     error.value = null;
     loading.value = true;
 
     try {
-      const res = await sendToWorkspace(serverUrl.value, workspaceName.value, { brief: text, detail });
+      const res = await sendToWorkspace(serverUrl.value, workspaceName.value, {
+        brief: '用户消息',
+        detail: text,
+      });
       if (!res.ok || !res.task_id) throw new Error('failed to send');
       await streamEvents(res.task_id);
     } catch (e) {
@@ -78,12 +159,13 @@ export const useChatStore = defineStore('chat', () => {
         let text = '';
         let toolText = '';
 
-        // StreamChunk: accumulate delta
-        const delta = (chunk?.choices as Array<Record<string, unknown>>)?.[0]?.delta as Record<string, unknown>;
+        const delta = (chunk?.choices as Array<Record<string, unknown>>)?.[0]
+          ?.delta as Record<string, unknown>;
         if (delta) {
           text = (delta.content || delta['content']) as string ?? '';
-          // accumulate tool calls by index
-          const tcs = (delta.tool_calls || delta['tool_calls']) as Array<Record<string, unknown>> | undefined;
+          const tcs = (delta.tool_calls || delta['tool_calls']) as
+            | Array<Record<string, unknown>>
+            | undefined;
           if (tcs) {
             for (const tc of tcs) {
               const idx = (tc.index as number) ?? 0;
@@ -100,26 +182,33 @@ export const useChatStore = defineStore('chat', () => {
             }
           }
         } else {
-          // ChatResponse (fallback): full message
-          const msg = (chunk?.choices as Array<Record<string, unknown>>)?.[0]?.message as Record<string, unknown>;
+          const msg = (chunk?.choices as Array<Record<string, unknown>>)?.[0]
+            ?.message as Record<string, unknown>;
           text = (msg?.content || msg?.['content']) as string ?? '';
-          const msgTCs = (msg?.tool_calls || msg?.['tool_calls']) as Array<Record<string, unknown>> | undefined;
+          const msgTCs = (msg?.tool_calls || msg?.['tool_calls']) as
+            | Array<Record<string, unknown>>
+            | undefined;
           if (msgTCs && msgTCs.length > 0) {
             toolText = msgTCs
               .map((tc: Record<string, unknown>) => {
                 const fn = tc.function as Record<string, string> | undefined;
                 const name = fn?.name || '';
                 const args = fn?.arguments || '';
-                const obj: ToolCallAccum = { id: (tc.id as string) || '', name, arguments: args };
+                const obj: ToolCallAccum = {
+                  id: (tc.id as string) || '',
+                  name,
+                  arguments: args,
+                };
                 return formatToolAccum(obj);
               })
               .join('\n');
           }
         }
 
-        const fr = (chunk?.choices as Array<Record<string, unknown>>)?.[0]?.finish_reason ?? null;
+        const fr =
+          (chunk?.choices as Array<Record<string, unknown>>)?.[0]
+            ?.finish_reason ?? null;
 
-        // flush accumulated streaming tool calls on finish_reason
         if (fr && toolAccum.length > 0 && !toolText) {
           toolText = toolAccum
             .filter((t) => t.name)
@@ -131,13 +220,18 @@ export const useChatStore = defineStore('chat', () => {
         if (!text && !toolText) return;
 
         if (lastHadFinish || currentMsgIdx < 0) {
-          messages.value.push({ role: 'manager', brief: text, detail: toolText });
+          messages.value.push({
+            role: 'manager',
+            brief: text,
+            detail: toolText,
+          });
           currentMsgIdx = messages.value.length - 1;
         } else {
           const msg = messages.value[currentMsgIdx];
           if (msg) {
             if (text) msg.brief += text;
-            if (toolText) msg.detail = (msg.detail ? msg.detail + '\n' : '') + toolText;
+            if (toolText)
+              msg.detail = (msg.detail ? msg.detail + '\n' : '') + toolText;
           }
         }
         lastHadFinish = fr != null;
@@ -158,10 +252,52 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  async function replyToRequest(sessionId: string, summary: string, detail: string) {
+    error.value = null;
+    loading.value = true;
+    try {
+      await replyToHumanRequest(serverUrl.value, sessionId, summary, detail);
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : String(e);
+    } finally {
+      loading.value = false;
+      inbox.value = inbox.value.filter((r) => r.session_id !== sessionId);
+      activeRequest.value = null;
+    }
+  }
+
+  function dismissInboxItem(sessionId: string) {
+    inbox.value = inbox.value.filter((r) => r.session_id !== sessionId);
+    if (activeRequest.value?.session_id === sessionId) {
+      activeRequest.value = null;
+    }
+  }
+
+  function cancelActiveRequest() {
+    activeRequest.value = null;
+  }
+
   function clear() {
     messages.value = [];
     error.value = null;
   }
 
-  return { serverUrl, workspaceName, workspaces, messages, loading, error, loadWorkspaces, send, clear };
+  return {
+    serverUrl,
+    workspaceName,
+    workspaces,
+    messages,
+    loading,
+    error,
+    boardPublishCount,
+    memberStates,
+    inbox,
+    activeRequest,
+    loadWorkspaces,
+    send,
+    replyToRequest,
+    dismissInboxItem,
+    cancelActiveRequest,
+    clear,
+  };
 });
