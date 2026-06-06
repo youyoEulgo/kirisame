@@ -50,8 +50,10 @@ export const useChatStore = defineStore('chat', () => {
 
   // workspace stream state
   let wsStream: EventSource | null = null;
+  let taskEs: EventSource | null = null;
   const boardPublishCount = ref(0);
   const memberStates = ref<Record<string, string>>({});
+  const chainLog = ref<Array<{ from: string; to: string; brief: string }>>([]);
   const inbox = ref<InboxItem[]>([]);
   const activeRequest = ref<InboxItem | null>(null);
 
@@ -78,6 +80,19 @@ export const useChatStore = defineStore('chat', () => {
               [event.member_id]: event.state,
             };
             break;
+          case 'chain_update': {
+            const from = event.from ?? '';
+            const to = event.to ?? '';
+            const brief = event.brief ?? '';
+            chainLog.value.push({ from, to, brief });
+            if (chainLog.value.length > 10) chainLog.value.shift();
+            messages.value.push({
+              role: 'manager',
+              brief: `${from} → ${to}: ${brief}`,
+              detail: '',
+            });
+            break;
+          }
           case 'human_request': {
             const item: InboxItem = {
               session_id: event.session_id ?? '',
@@ -112,6 +127,7 @@ export const useChatStore = defineStore('chat', () => {
 
   watch(workspaceName, () => {
     memberStates.value = {};
+    chainLog.value = [];
     boardPublishCount.value = 0;
     inbox.value = [];
     activeRequest.value = null;
@@ -132,26 +148,39 @@ export const useChatStore = defineStore('chat', () => {
         detail: text,
       });
       if (!res.ok || !res.task_id) throw new Error('failed to send');
-      await streamEvents(res.task_id);
+      streamEvents(res.task_id);
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e);
-    } finally {
       loading.value = false;
     }
   }
 
   function streamEvents(taskId: string): Promise<void> {
     return new Promise((resolve) => {
+      if (taskEs) { taskEs.close(); taskEs = null; }
       const url = `${serverUrl.value}/workspace/${workspaceName.value}/events/${taskId}`;
       const es = new EventSource(url);
+      taskEs = es;
       let currentMsgIdx = -1;
       let lastHadFinish = false;
       const toolAccum: ToolCallAccum[] = [];
 
       es.onmessage = (e) => {
+        // DONE 仅是 LLM 轮次边界，不关闭连接——子委托返回后可能继续处理同一 task
         if (e.data === DONE) {
-          es.close();
-          resolve();
+          if (toolAccum.length > 0) {
+            const flushed = toolAccum
+              .filter((t) => t.name)
+              .map(formatToolAccum)
+              .join('\n');
+            if (flushed) {
+              const msg = messages.value[currentMsgIdx];
+              if (msg) msg.detail = (msg.detail ? msg.detail + '\n' : '') + flushed;
+            }
+            toolAccum.length = 0;
+          }
+          lastHadFinish = true;
+          loading.value = false;
           return;
         }
 
@@ -163,25 +192,8 @@ export const useChatStore = defineStore('chat', () => {
           ?.delta as Record<string, unknown>;
         if (delta) {
           text = (delta.content || delta['content']) as string ?? '';
-          const tcs = (delta.tool_calls || delta['tool_calls']) as
-            | Array<Record<string, unknown>>
-            | undefined;
-          if (tcs) {
-            for (const tc of tcs) {
-              const idx = (tc.index as number) ?? 0;
-              while (toolAccum.length <= idx) {
-                toolAccum.push({ id: '', name: '', arguments: '' });
-              }
-              const a = toolAccum[idx]!;
-              const fn = tc.function as Record<string, string> | undefined;
-              if (fn) {
-                if (fn.name) a.name = fn.name;
-                if (fn.arguments) a.arguments += fn.arguments;
-              }
-              if ((tc.id as string) && !a.id) a.id = tc.id as string;
-            }
-          }
         } else {
+          // ChatResponse (fallback): 一次性拿到完整响应，text+toolText 同帧
           const msg = (chunk?.choices as Array<Record<string, unknown>>)?.[0]
             ?.message as Record<string, unknown>;
           text = (msg?.content || msg?.['content']) as string ?? '';
@@ -205,36 +217,43 @@ export const useChatStore = defineStore('chat', () => {
           }
         }
 
-        const fr =
-          (chunk?.choices as Array<Record<string, unknown>>)?.[0]
-            ?.finish_reason ?? null;
-
-        if (fr && toolAccum.length > 0 && !toolText) {
-          toolText = toolAccum
-            .filter((t) => t.name)
-            .map(formatToolAccum)
-            .join('\n');
-          toolAccum.length = 0;
+        const tcs = (delta?.tool_calls || delta?.['tool_calls']) as
+          | Array<Record<string, unknown>>
+          | undefined;
+        if (tcs) {
+          for (const tc of tcs) {
+            const idx = (tc.index as number) ?? 0;
+            while (toolAccum.length <= idx) {
+              toolAccum.push({ id: '', name: '', arguments: '' });
+            }
+            const a = toolAccum[idx]!;
+            const fn = tc.function as Record<string, string> | undefined;
+            if (fn) {
+              if (fn.name) a.name = fn.name;
+              if (fn.arguments) a.arguments += fn.arguments;
+            }
+            if ((tc.id as string) && !a.id) a.id = tc.id as string;
+          }
         }
 
-        if (!text && !toolText) return;
-
-        if (lastHadFinish || currentMsgIdx < 0) {
-          messages.value.push({
-            role: 'manager',
-            brief: text,
-            detail: toolText,
-          });
-          currentMsgIdx = messages.value.length - 1;
+        if (lastHadFinish) {
+          lastHadFinish = false;
+          if (text || toolText) {
+            messages.value.push({ role: 'manager', brief: text, detail: toolText });
+            currentMsgIdx = messages.value.length - 1;
+          }
+        } else if (currentMsgIdx < 0) {
+          if (text || toolText) {
+            messages.value.push({ role: 'manager', brief: text, detail: toolText });
+            currentMsgIdx = messages.value.length - 1;
+          }
         } else {
           const msg = messages.value[currentMsgIdx];
           if (msg) {
             if (text) msg.brief += text;
-            if (toolText)
-              msg.detail = (msg.detail ? msg.detail + '\n' : '') + toolText;
+            if (toolText) msg.detail = (msg.detail ? msg.detail + '\n' : '') + toolText;
           }
         }
-        lastHadFinish = fr != null;
       };
 
       es.onerror = () => {
@@ -255,6 +274,7 @@ export const useChatStore = defineStore('chat', () => {
   async function replyToRequest(sessionId: string, summary: string, detail: string) {
     error.value = null;
     loading.value = true;
+    messages.value.push({ role: 'user', brief: summary, detail: detail });
     try {
       await replyToHumanRequest(serverUrl.value, sessionId, summary, detail);
     } catch (e) {
@@ -291,6 +311,7 @@ export const useChatStore = defineStore('chat', () => {
     error,
     boardPublishCount,
     memberStates,
+    chainLog,
     inbox,
     activeRequest,
     loadWorkspaces,

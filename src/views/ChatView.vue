@@ -55,11 +55,20 @@ async function submit() {
         :key="id"
         :class="['member-tag', state]"
       >
-        {{ id }}
+        {{ id }} <em class="member-state">{{ state }}</em>
       </span>
       <span v-if="!Object.keys(store.memberStates).length" class="member-tag empty">
         connecting…
       </span>
+      <div v-if="store.chainLog.length" class="chain-log">
+        <span
+          v-for="(entry, i) in store.chainLog.slice(-5)"
+          :key="i"
+          class="chain-item"
+        >
+          {{ entry.from }}→{{ entry.to }}
+        </span>
+      </div>
     </div>
 
     <div ref="listEl" class="chat-list">
@@ -274,6 +283,28 @@ select {
 }
 .member-tag.empty {
   color: #555;
+}
+.member-state {
+  font-style: normal;
+  font-size: 10px;
+  margin-left: 2px;
+  color: inherit;
+  opacity: 0.6;
+}
+.chain-log {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 4px 12px;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+}
+.chain-item {
+  font-size: 10px;
+  color: #666;
+  background: #1a1a1a;
+  padding: 1px 5px;
+  border-radius: 3px;
 }
 .reply-context {
   font-size: 13px;
