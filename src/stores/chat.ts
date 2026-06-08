@@ -81,16 +81,12 @@ export const useChatStore = defineStore('chat', () => {
             };
             break;
           case 'chain_update': {
-            const from = event.from ?? '';
-            const to = event.to ?? '';
-            const brief = event.brief ?? '';
-            chainLog.value.push({ from, to, brief });
-            if (chainLog.value.length > 10) chainLog.value.shift();
-            messages.value.push({
-              role: 'manager',
-              brief: `${from} → ${to}: ${brief}`,
-              detail: '',
+            chainLog.value.push({
+              from: event.from ?? '',
+              to: event.to ?? '',
+              brief: event.brief ?? '',
             });
+            if (chainLog.value.length > 10) chainLog.value.shift();
             break;
           }
           case 'human_request': {
