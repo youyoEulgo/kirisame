@@ -3,7 +3,7 @@ import { defineStore } from 'pinia';
 import { sendToWorkspace, fetchWorkspaces, replyToHumanRequest } from '@/api/workspace';
 
 export interface DisplayMessage {
-  role: 'user' | 'manager';
+  role: string;
   brief: string;
   detail: string;
 }
@@ -40,6 +40,11 @@ function formatToolAccum(tc: ToolCallAccum): string {
   }
 }
 
+interface MemberAccum {
+  text: string;
+  tools: ToolCallAccum[];
+}
+
 export const useChatStore = defineStore('chat', () => {
   const serverUrl = ref('http://127.0.0.1:3939');
   const workspaceName = ref('');
@@ -56,6 +61,74 @@ export const useChatStore = defineStore('chat', () => {
   const chainLog = ref<Array<{ from: string; to: string; brief: string }>>([]);
   const inbox = ref<InboxItem[]>([]);
   const activeRequest = ref<InboxItem | null>(null);
+
+  // per-member accumulators for shared stream chunks
+  const memberAccum = ref<Record<string, MemberAccum>>({});
+
+  function flushMember(mid: string) {
+    const a = memberAccum.value[mid];
+    if (!a) return;
+    const text = a.text.trim();
+    const toolText = a.tools
+      .filter((t) => t.name)
+      .map(formatToolAccum)
+      .join('\n');
+    if (!text && !toolText) {
+      delete memberAccum.value[mid];
+      return;
+    }
+    messages.value.push({ role: mid, brief: text, detail: toolText });
+    delete memberAccum.value[mid];
+  }
+
+  function handleStreamChunk(chunk: Record<string, unknown>, mid: string) {
+    if (!memberAccum.value[mid]) {
+      memberAccum.value[mid] = { text: '', tools: [] };
+    }
+    const a = memberAccum.value[mid]!;
+
+    let text = '';
+    const delta = (chunk?.choices as Array<Record<string, unknown>>)?.[0]
+      ?.delta as Record<string, unknown>;
+    if (delta) {
+      text = (delta.content || delta['content']) as string ?? '';
+    } else {
+      const msg = (chunk?.choices as Array<Record<string, unknown>>)?.[0]
+        ?.message as Record<string, unknown>;
+      text = (msg?.content || msg?.['content']) as string ?? '';
+      const msgTCs = (msg?.tool_calls || msg?.['tool_calls']) as
+        | Array<Record<string, unknown>>
+        | undefined;
+      if (msgTCs && msgTCs.length > 0) {
+        for (const tc of msgTCs) {
+          const fn = tc.function as Record<string, string> | undefined;
+          const name = fn?.name || '';
+          const args = fn?.arguments || '';
+          a.tools.push({ id: (tc.id as string) || '', name, arguments: args });
+        }
+      }
+    }
+    if (text) a.text += text;
+
+    const tcs = (delta?.tool_calls || delta?.['tool_calls']) as
+      | Array<Record<string, unknown>>
+      | undefined;
+    if (tcs) {
+      for (const tc of tcs) {
+        const idx = (tc.index as number) ?? 0;
+        while (a.tools.length <= idx) {
+          a.tools.push({ id: '', name: '', arguments: '' });
+        }
+        const t = a.tools[idx]!;
+        const fn = tc.function as Record<string, string> | undefined;
+        if (fn) {
+          if (fn.name) t.name = fn.name;
+          if (fn.arguments) t.arguments += fn.arguments;
+        }
+        if ((tc.id as string) && !t.id) t.id = tc.id as string;
+      }
+    }
+  }
 
   function connectStream() {
     if (!workspaceName.value) return;
@@ -79,6 +152,9 @@ export const useChatStore = defineStore('chat', () => {
               ...memberStates.value,
               [event.member_id]: event.state,
             };
+            if (event.state === 'idle') {
+              flushMember(event.member_id);
+            }
             break;
           case 'chain_update': {
             chainLog.value.push({
@@ -103,9 +179,16 @@ export const useChatStore = defineStore('chat', () => {
             }
             messages.value.push({
               role: 'manager',
-              brief: `📨 ${item.from} → ${item.to}: ${item.brief}`,
+              brief: `${item.from} → ${item.to}: ${item.brief}`,
               detail: item.detail,
             });
+            break;
+          }
+          case 'stream_chunk': {
+            const mid: string = event.member_id ?? 'unknown';
+            // per-task stream 已处理 manager 的输出，共享流跳过避免重复
+            if (mid === 'manager') break;
+            handleStreamChunk(event.chunk as Record<string, unknown>, mid);
             break;
           }
         }
@@ -123,6 +206,7 @@ export const useChatStore = defineStore('chat', () => {
 
   watch(workspaceName, () => {
     memberStates.value = {};
+    memberAccum.value = {};
     chainLog.value = [];
     boardPublishCount.value = 0;
     inbox.value = [];
@@ -144,6 +228,7 @@ export const useChatStore = defineStore('chat', () => {
         detail: text,
       });
       if (!res.ok || !res.task_id) throw new Error('failed to send');
+      memberAccum.value = {};
       streamEvents(res.task_id);
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e);
@@ -174,6 +259,10 @@ export const useChatStore = defineStore('chat', () => {
               if (msg) msg.detail = (msg.detail ? msg.detail + '\n' : '') + flushed;
             }
             toolAccum.length = 0;
+          }
+          // 刷新所有累计中的其他成员输出
+          for (const mid of Object.keys(memberAccum.value)) {
+            flushMember(mid);
           }
           lastHadFinish = true;
           loading.value = false;

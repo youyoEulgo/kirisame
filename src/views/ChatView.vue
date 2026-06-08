@@ -81,8 +81,8 @@ async function submit() {
         :class="['chat-msg', `chat-msg--${m.role}`]"
       >
         <span class="chat-msg-role">{{ m.role }}</span>
-        <p class="chat-msg-brief">{{ m.brief }}</p>
-        <pre v-if="m.detail" class="chat-msg-detail">{{ m.detail }}</pre>
+        <p :class="['chat-msg-brief', { 'chat-msg-brief--sub': m.role !== 'user' && m.role !== 'manager' }]">{{ m.brief }}</p>
+        <pre v-if="m.detail" :class="['chat-msg-detail', { 'chat-msg-detail--sub': m.role !== 'user' && m.role !== 'manager' }]">{{ m.detail }}</pre>
       </div>
       <div v-if="store.loading" class="chat-msg chat-msg--manager">
         <span class="chat-msg-role">manager</span>
@@ -188,6 +188,14 @@ async function submit() {
 }
 .chat-msg--manager .chat-msg-brief {
   color: #fff;
+}
+.chat-msg-brief--sub {
+  font-size: 13px;
+  color: #999;
+}
+.chat-msg-detail--sub {
+  color: #777;
+  font-size: 12px;
 }
 .thinking {
   color: #888;
