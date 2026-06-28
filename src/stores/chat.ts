@@ -16,7 +16,74 @@ export interface InboxItem {
   detail: string;
 }
 
-const DONE = '{"type":"done"}';
+// ── Workspace Event Types ────────────────────────────────
+
+interface EventMetadata {
+  event: string;
+  member_id: string;
+  delegation_id: string;
+  timestamp: number;
+}
+
+interface StreamChunk {
+  id: string;
+  model: string;
+  choices: Array<{
+    index: number;
+    delta?: {
+      content?: string;
+      tool_calls?: Array<{
+        index: number;
+        id?: string;
+        type?: string;
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+    message?: {
+      role: string;
+      content?: string;
+      tool_calls?: Array<{
+        id: string;
+        type: string;
+        function: { name: string; arguments: string };
+      }>;
+    };
+    finish_reason?: string;
+  }>;
+  usage?: unknown;
+}
+
+type StreamChunkContent = {
+  chunk: StreamChunk;
+};
+
+type BoardUpdateContent = {
+  publish_count: number;
+};
+
+type ChainUpdateContent = {
+  from: string;
+  to: string;
+  brief: string;
+  head_pos: number;
+};
+
+type MemberStatusContent = {
+  state: string;
+};
+
+type HumanRequestContent = {
+  session_id: string;
+  from: string;
+  to: string;
+  brief: string;
+  detail: string;
+};
+
+interface WorkspaceEvent<T> {
+  metadata: EventMetadata;
+  content: T;
+}
 
 interface ToolCallAccum {
   id: string;
@@ -29,10 +96,7 @@ function formatToolAccum(tc: ToolCallAccum): string {
   try {
     const obj = JSON.parse(tc.arguments);
     const pairs = Object.entries(obj)
-      .map(
-        ([k, v]) =>
-          `${k}: ${typeof v === 'string' ? JSON.stringify(v) : String(v)}`,
-      )
+      .map(([k, v]) => `${k}: ${typeof v === 'string' ? JSON.stringify(v) : String(v)}`)
       .join(', ');
     return `${tc.name}(${pairs})`;
   } catch {
@@ -55,7 +119,6 @@ export const useChatStore = defineStore('chat', () => {
 
   // workspace stream state
   let wsStream: EventSource | null = null;
-  let taskEs: EventSource | null = null;
   const boardPublishCount = ref(0);
   const memberStates = ref<Record<string, string>>({});
   const chainLog = ref<Array<{ from: string; to: string; brief: string }>>([]);
@@ -64,6 +127,97 @@ export const useChatStore = defineStore('chat', () => {
 
   // per-member accumulators for shared stream chunks
   const memberAccum = ref<Record<string, MemberAccum>>({});
+  const streamingMsgIdx = ref<Record<string, number>>({});
+
+  function handleStreamChunkEvent(content: StreamChunkContent, memberId: string) {
+    const chunk = content.chunk;
+    if (!memberAccum.value[memberId]) {
+      memberAccum.value[memberId] = { text: '', tools: [] };
+      // 第一条 chunk，push 新消息
+      messages.value.push({ role: memberId, brief: '', detail: '' });
+      streamingMsgIdx.value[memberId] = messages.value.length - 1;
+    }
+    const a = memberAccum.value[memberId]!;
+    const msg = messages.value[streamingMsgIdx.value[memberId]!];
+
+    let text = '';
+    const delta = chunk.choices[0]?.delta;
+    if (delta) {
+      text = delta.content ?? '';
+    } else {
+      const msgChoice = chunk.choices[0]?.message;
+      text = msgChoice?.content ?? '';
+      const msgTCs = msgChoice?.tool_calls;
+      if (msgTCs && msgTCs.length > 0) {
+        for (const tc of msgTCs) {
+          a.tools.push({ id: tc.id, name: tc.function.name, arguments: tc.function.arguments });
+        }
+      }
+    }
+    if (text) {
+      a.text += text;
+      if (msg) msg.brief += text;
+    }
+
+    const tcs = delta?.tool_calls;
+    if (tcs) {
+      for (const tc of tcs) {
+        const idx = tc.index ?? 0;
+        while (a.tools.length <= idx) {
+          a.tools.push({ id: '', name: '', arguments: '' });
+        }
+        const t = a.tools[idx]!;
+        if (tc.function?.name) t.name = tc.function.name;
+        if (tc.function?.arguments) t.arguments += tc.function.arguments;
+        if (tc.id && !t.id) t.id = tc.id;
+      }
+      // 实时更新 tool detail
+      if (msg) msg.detail = a.tools.filter((t) => t.name).map(formatToolAccum).join('\n');
+    }
+  }
+
+  function handleBoardUpdateEvent(content: BoardUpdateContent) {
+    boardPublishCount.value = content.publish_count;
+  }
+
+  function handleChainUpdateEvent(content: ChainUpdateContent) {
+    chainLog.value.push({
+      from: content.from,
+      to: content.to,
+      brief: content.brief,
+    });
+    if (chainLog.value.length > 10) chainLog.value.shift();
+  }
+
+  function handleMemberStatusEvent(content: MemberStatusContent, memberId: string) {
+    memberStates.value = {
+      ...memberStates.value,
+      [memberId]: content.state,
+    };
+    if (content.state === 'idle') {
+      flushMember(memberId);
+      loading.value = false;
+    }
+  }
+
+  function handleHumanRequestEvent(content: HumanRequestContent) {
+    const item: InboxItem = {
+      session_id: content.session_id,
+      from: content.from,
+      to: content.to,
+      brief: content.brief,
+      detail: content.detail,
+    };
+    inbox.value.push(item);
+    if (!activeRequest.value) {
+      activeRequest.value = item;
+    }
+    messages.value.push({
+      role: 'manager',
+      brief: `${item.from} → ${item.to}: ${item.brief}`,
+      detail: item.detail,
+    });
+  }
 
   function flushMember(mid: string) {
     const a = memberAccum.value[mid];
@@ -73,61 +227,26 @@ export const useChatStore = defineStore('chat', () => {
       .filter((t) => t.name)
       .map(formatToolAccum)
       .join('\n');
+
+    // 如果已经有流式消息，只更新 tool detail（文本已实时推送）
+    const idx = streamingMsgIdx.value[mid];
+    if (idx !== undefined) {
+      const msg = messages.value[idx];
+      if (msg) {
+        if (toolText) msg.detail = toolText;
+        if (text && !msg.brief) msg.brief = text;
+      }
+      delete streamingMsgIdx.value[mid];
+      delete memberAccum.value[mid];
+      return;
+    }
+
     if (!text && !toolText) {
       delete memberAccum.value[mid];
       return;
     }
     messages.value.push({ role: mid, brief: text, detail: toolText });
     delete memberAccum.value[mid];
-  }
-
-  function handleStreamChunk(chunk: Record<string, unknown>, mid: string) {
-    if (!memberAccum.value[mid]) {
-      memberAccum.value[mid] = { text: '', tools: [] };
-    }
-    const a = memberAccum.value[mid]!;
-
-    let text = '';
-    const delta = (chunk?.choices as Array<Record<string, unknown>>)?.[0]
-      ?.delta as Record<string, unknown>;
-    if (delta) {
-      text = (delta.content || delta['content']) as string ?? '';
-    } else {
-      const msg = (chunk?.choices as Array<Record<string, unknown>>)?.[0]
-        ?.message as Record<string, unknown>;
-      text = (msg?.content || msg?.['content']) as string ?? '';
-      const msgTCs = (msg?.tool_calls || msg?.['tool_calls']) as
-        | Array<Record<string, unknown>>
-        | undefined;
-      if (msgTCs && msgTCs.length > 0) {
-        for (const tc of msgTCs) {
-          const fn = tc.function as Record<string, string> | undefined;
-          const name = fn?.name || '';
-          const args = fn?.arguments || '';
-          a.tools.push({ id: (tc.id as string) || '', name, arguments: args });
-        }
-      }
-    }
-    if (text) a.text += text;
-
-    const tcs = (delta?.tool_calls || delta?.['tool_calls']) as
-      | Array<Record<string, unknown>>
-      | undefined;
-    if (tcs) {
-      for (const tc of tcs) {
-        const idx = (tc.index as number) ?? 0;
-        while (a.tools.length <= idx) {
-          a.tools.push({ id: '', name: '', arguments: '' });
-        }
-        const t = a.tools[idx]!;
-        const fn = tc.function as Record<string, string> | undefined;
-        if (fn) {
-          if (fn.name) t.name = fn.name;
-          if (fn.arguments) t.arguments += fn.arguments;
-        }
-        if ((tc.id as string) && !t.id) t.id = tc.id as string;
-      }
-    }
   }
 
   function connectStream() {
@@ -143,54 +262,24 @@ export const useChatStore = defineStore('chat', () => {
     wsStream.onmessage = (e) => {
       try {
         const event = JSON.parse(e.data);
-        switch (event.type) {
+        const { metadata, content } = event;
+
+        switch (metadata?.event) {
+          case 'stream_chunk':
+            handleStreamChunkEvent(content, metadata.member_id);
+            break;
           case 'board_update':
-            boardPublishCount.value = event.publish_count ?? 0;
+            handleBoardUpdateEvent(content);
+            break;
+          case 'chain_update':
+            handleChainUpdateEvent(content);
             break;
           case 'member_status':
-            memberStates.value = {
-              ...memberStates.value,
-              [event.member_id]: event.state,
-            };
-            if (event.state === 'idle') {
-              flushMember(event.member_id);
-            }
+            handleMemberStatusEvent(content, metadata.member_id);
             break;
-          case 'chain_update': {
-            chainLog.value.push({
-              from: event.from ?? '',
-              to: event.to ?? '',
-              brief: event.brief ?? '',
-            });
-            if (chainLog.value.length > 10) chainLog.value.shift();
+          case 'human_request':
+            handleHumanRequestEvent(content);
             break;
-          }
-          case 'human_request': {
-            const item: InboxItem = {
-              session_id: event.session_id ?? '',
-              from: event.from ?? '',
-              to: event.to ?? '',
-              brief: event.brief ?? '',
-              detail: event.detail ?? '',
-            };
-            inbox.value.push(item);
-            if (!activeRequest.value) {
-              activeRequest.value = item;
-            }
-            messages.value.push({
-              role: 'manager',
-              brief: `${item.from} → ${item.to}: ${item.brief}`,
-              detail: item.detail,
-            });
-            break;
-          }
-          case 'stream_chunk': {
-            const mid: string = event.member_id ?? 'unknown';
-            // per-task stream 已处理 manager 的输出，共享流跳过避免重复
-            if (mid === 'manager') break;
-            handleStreamChunk(event.chunk as Record<string, unknown>, mid);
-            break;
-          }
         }
       } catch {
         // ignore parse errors
@@ -207,6 +296,7 @@ export const useChatStore = defineStore('chat', () => {
   watch(workspaceName, () => {
     memberStates.value = {};
     memberAccum.value = {};
+    streamingMsgIdx.value = {};
     chainLog.value = [];
     boardPublishCount.value = 0;
     inbox.value = [];
@@ -229,123 +319,11 @@ export const useChatStore = defineStore('chat', () => {
       });
       if (!res.ok || !res.task_id) throw new Error('failed to send');
       memberAccum.value = {};
-      streamEvents(res.task_id);
+      streamingMsgIdx.value = {};
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e);
       loading.value = false;
     }
-  }
-
-  function streamEvents(taskId: string): Promise<void> {
-    return new Promise((resolve) => {
-      if (taskEs) { taskEs.close(); taskEs = null; }
-      const url = `${serverUrl.value}/workspace/${workspaceName.value}/events/${taskId}`;
-      const es = new EventSource(url);
-      taskEs = es;
-      let currentMsgIdx = -1;
-      let lastHadFinish = false;
-      const toolAccum: ToolCallAccum[] = [];
-
-      es.onmessage = (e) => {
-        // DONE 仅是 LLM 轮次边界，不关闭连接——子委托返回后可能继续处理同一 task
-        if (e.data === DONE) {
-          if (toolAccum.length > 0) {
-            const flushed = toolAccum
-              .filter((t) => t.name)
-              .map(formatToolAccum)
-              .join('\n');
-            if (flushed) {
-              const msg = messages.value[currentMsgIdx];
-              if (msg) msg.detail = (msg.detail ? msg.detail + '\n' : '') + flushed;
-            }
-            toolAccum.length = 0;
-          }
-          // 刷新所有累计中的其他成员输出
-          for (const mid of Object.keys(memberAccum.value)) {
-            flushMember(mid);
-          }
-          lastHadFinish = true;
-          loading.value = false;
-          return;
-        }
-
-        const chunk = JSON.parse(e.data);
-        let text = '';
-        let toolText = '';
-
-        const delta = (chunk?.choices as Array<Record<string, unknown>>)?.[0]
-          ?.delta as Record<string, unknown>;
-        if (delta) {
-          text = (delta.content || delta['content']) as string ?? '';
-        } else {
-          // ChatResponse (fallback): 一次性拿到完整响应，text+toolText 同帧
-          const msg = (chunk?.choices as Array<Record<string, unknown>>)?.[0]
-            ?.message as Record<string, unknown>;
-          text = (msg?.content || msg?.['content']) as string ?? '';
-          const msgTCs = (msg?.tool_calls || msg?.['tool_calls']) as
-            | Array<Record<string, unknown>>
-            | undefined;
-          if (msgTCs && msgTCs.length > 0) {
-            toolText = msgTCs
-              .map((tc: Record<string, unknown>) => {
-                const fn = tc.function as Record<string, string> | undefined;
-                const name = fn?.name || '';
-                const args = fn?.arguments || '';
-                const obj: ToolCallAccum = {
-                  id: (tc.id as string) || '',
-                  name,
-                  arguments: args,
-                };
-                return formatToolAccum(obj);
-              })
-              .join('\n');
-          }
-        }
-
-        const tcs = (delta?.tool_calls || delta?.['tool_calls']) as
-          | Array<Record<string, unknown>>
-          | undefined;
-        if (tcs) {
-          for (const tc of tcs) {
-            const idx = (tc.index as number) ?? 0;
-            while (toolAccum.length <= idx) {
-              toolAccum.push({ id: '', name: '', arguments: '' });
-            }
-            const a = toolAccum[idx]!;
-            const fn = tc.function as Record<string, string> | undefined;
-            if (fn) {
-              if (fn.name) a.name = fn.name;
-              if (fn.arguments) a.arguments += fn.arguments;
-            }
-            if ((tc.id as string) && !a.id) a.id = tc.id as string;
-          }
-        }
-
-        if (lastHadFinish) {
-          lastHadFinish = false;
-          if (text || toolText) {
-            messages.value.push({ role: 'manager', brief: text, detail: toolText });
-            currentMsgIdx = messages.value.length - 1;
-          }
-        } else if (currentMsgIdx < 0) {
-          if (text || toolText) {
-            messages.value.push({ role: 'manager', brief: text, detail: toolText });
-            currentMsgIdx = messages.value.length - 1;
-          }
-        } else {
-          const msg = messages.value[currentMsgIdx];
-          if (msg) {
-            if (text) msg.brief += text;
-            if (toolText) msg.detail = (msg.detail ? msg.detail + '\n' : '') + toolText;
-          }
-        }
-      };
-
-      es.onerror = () => {
-        es.close();
-        resolve();
-      };
-    });
   }
 
   async function loadWorkspaces() {
