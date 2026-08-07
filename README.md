@@ -1,48 +1,42 @@
-# kirisame
+# Margatroid UI
 
-This template should help get you started developing with Vue 3 in Vite.
+这是 Margatroid 的 Web 工作台，使用 Vue 3、Vite、Pinia 和 Bun。它直接连接 daemon 的 WebSocket，
+不依赖旧 `kirisame` 的 HTTP、SSE 或任务板 API。
 
-## Recommended IDE Setup
-
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
-
-## Recommended Browser Setup
-
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
-
-## Type Support for `.vue` Imports in TS
-
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
+## 启动
 
 ```sh
-npm install
+bun install
+bun dev
 ```
 
-### Compile and Hot-Reload for Development
+默认地址是 `http://127.0.0.1:5173/`。daemon 默认 WebSocket 地址是
+`ws://127.0.0.1:3939/ws`，可以在界面里的 Connection 设置中修改。
 
 ```sh
-npm run dev
+cargo run -p margatroid_daemon -- --data-root ~/.margatroid
 ```
 
-### Type-Check, Compile and Minify for Production
+Workspace 文件仍由 CLI 编译并发送：
 
 ```sh
-npm run build
+cargo run -p margatroid_cli -- workspace up ../demo_workspace/margatroid-workspace.yaml
 ```
 
-### Lint with [ESLint](https://eslint.org/)
+UI 会监听 `workspace.started`，记录 Workspace 的 manager 和 Agent 列表。也可以手动添加一个已经
+运行的 Workspace 引用；这不会重新启动 Workspace，只保存名称和项目根目录供消息路由使用。
+
+## 协议
+
+发送用户消息时，选中的普通 Agent 会写入 `agent`；选中 manager 路由时发送 `agent: null`，由 daemon
+查询 Workspace.manager。daemon 返回的 `agent.message` 携带已经解析出的 Agent 名称，消息内容使用
+`margatroid_types::Message` 的 serde 枚举形状。运行日志和推理失败分别显示在 Activity 面板和对话中。
+
+## 检查
 
 ```sh
-npm run lint
+bun run type-check
+bun run build
+bun x eslint src --max-warnings=0
+bun x oxlint .
 ```
