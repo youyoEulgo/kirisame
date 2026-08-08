@@ -1,35 +1,34 @@
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 
 import {
   parseServerEvent,
+  type AgentHistory,
   type AgentMessage,
   type ClientRequest,
+  type ResourceRef,
   type ToolCall,
   type WorkspaceInfo,
   type WorkspaceRef,
 } from '@/types/protocol';
 
-const STORAGE_KEY = 'margatroid.ui.v1';
 const DEFAULT_ENDPOINT = 'ws://127.0.0.1:3939/ws';
 const MAX_LOGS = 500;
-const MAX_MESSAGES = 300;
 
 export type ConnectionStatus = 'offline' | 'connecting' | 'online';
-export type MessageRole = 'system' | 'user' | 'assistant' | 'tool' | 'failure';
-export type DeliveryState = 'pending' | 'sent' | 'failed';
+export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
 export interface ConversationEntry {
   key: string;
   id: string;
+  sequence: number;
   workspaceKey: string;
   agent: string;
-  requestedAgent: string | null;
   role: MessageRole;
   content: string;
   toolCalls: ToolCall[];
+  resources: ResourceRef[];
   timestamp: number;
-  delivery: DeliveryState;
 }
 
 export interface RuntimeLog {
@@ -41,22 +40,14 @@ export interface RuntimeLog {
   fields: Array<{ name: string; value: string }>;
 }
 
-interface PersistedState {
-  endpoint: string;
-  workspaces: WorkspaceInfo[];
-  selectedWorkspaceKey: string;
-  messages: ConversationEntry[];
-}
-
 export const useWorkbenchStore = defineStore('workbench', () => {
-  const persisted = loadState();
-  const endpoint = ref(persisted.endpoint);
+  const endpoint = ref(DEFAULT_ENDPOINT);
   const connectionStatus = ref<ConnectionStatus>('offline');
   const connectionError = ref('');
-  const workspaces = ref<WorkspaceInfo[]>(persisted.workspaces);
-  const selectedWorkspaceKey = ref(persisted.selectedWorkspaceKey);
+  const workspaces = ref<WorkspaceInfo[]>([]);
+  const selectedWorkspaceKey = ref('');
   const selectedAgent = ref<string | null>(null);
-  const messages = ref<ConversationEntry[]>(persisted.messages);
+  const messages = ref<ConversationEntry[]>([]);
   const logs = ref<RuntimeLog[]>([]);
 
   let socket: WebSocket | null = null;
@@ -87,23 +78,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     });
   });
 
-  const selectedAgentBusy = computed(() =>
-    visibleMessages.value.some((entry) => entry.role === 'user' && entry.delivery === 'pending'),
-  );
-
-  watch(
-    [endpoint, workspaces, selectedWorkspaceKey, messages],
-    () => {
-      saveState({
-        endpoint: endpoint.value,
-        workspaces: workspaces.value,
-        selectedWorkspaceKey: selectedWorkspaceKey.value,
-        messages: messages.value.slice(-MAX_MESSAGES),
-      });
-    },
-    { deep: true },
-  );
-
   function connect(nextEndpoint?: string): boolean {
     if (nextEndpoint !== undefined) {
       try {
@@ -125,6 +99,11 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
     nextSocket.onopen = () => {
       if (socket !== nextSocket) return;
+      const registration: ClientRequest = {
+        type: 'connection.register',
+        client_type: 'webui',
+      };
+      nextSocket.send(JSON.stringify(registration));
       reconnectAttempt = 0;
       connectionStatus.value = 'online';
       connectionError.value = '';
@@ -144,7 +123,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       if (socket !== nextSocket) return;
       socket = null;
       connectionStatus.value = 'offline';
-      markPendingMessagesFailed();
       if (shouldReconnect) scheduleReconnect();
     };
     return true;
@@ -155,31 +133,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     clearReconnectTimer();
     closeSocket();
     connectionStatus.value = 'offline';
-  }
-
-  function addWorkspace(workspace: WorkspaceInfo) {
-    const normalized: WorkspaceInfo = {
-      name: workspace.name.trim(),
-      project_root: workspace.project_root.trim(),
-      manager: workspace.manager.trim(),
-      agents: uniqueNames(workspace.agents),
-    };
-    if (!normalized.name) throw new Error('Workspace name is required');
-    if (!normalized.project_root) throw new Error('Project root is required');
-    if (normalized.manager && !normalized.agents.includes(normalized.manager)) {
-      normalized.agents.unshift(normalized.manager);
-    }
-    upsertWorkspace(normalized);
-    selectWorkspace(workspaceKey(normalized));
-  }
-
-  function removeWorkspace(key: string) {
-    workspaces.value = workspaces.value.filter((workspace) => workspaceKey(workspace) !== key);
-    messages.value = messages.value.filter((entry) => entry.workspaceKey !== key);
-    if (selectedWorkspaceKey.value === key) {
-      selectedWorkspaceKey.value = workspaces.value[0] ? workspaceKey(workspaces.value[0]) : '';
-      selectedAgent.value = null;
-    }
   }
 
   function selectWorkspace(key: string) {
@@ -208,40 +161,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       agent: selectedAgent.value,
       content: text,
     };
-    const target = selectedAgent.value || workspace.manager || 'Manager';
-
-    messages.value.push({
-      key: `local:${id}`,
-      id,
-      workspaceKey: workspaceKey(workspace),
-      agent: target,
-      requestedAgent: selectedAgent.value,
-      role: 'user',
-      content: text,
-      toolCalls: [],
-      timestamp: Date.now(),
-      delivery: 'pending',
-    });
-    trimMessages();
     socket.send(JSON.stringify(request));
-
-    window.setTimeout(() => {
-      const pending = messages.value.find(
-        (entry) => entry.id === id && entry.delivery === 'pending',
-      );
-      if (pending) pending.delivery = 'failed';
-    }, 12_000);
     return id;
-  }
-
-  function clearConversation() {
-    const workspace = selectedWorkspace.value;
-    if (!workspace) return;
-    const key = workspaceKey(workspace);
-    const agent = selectedAgent.value || workspace.manager;
-    messages.value = messages.value.filter(
-      (entry) => entry.workspaceKey !== key || (agent ? entry.agent !== agent : false),
-    );
   }
 
   function clearLogs() {
@@ -251,12 +172,15 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   function handleServerEvent(event: ReturnType<typeof parseServerEvent> & object) {
     if (!event) return;
     switch (event.type) {
+      case 'state.sync':
+        synchronizeWorkspaces(event.state.workspaces);
+        synchronizeHistories(event.state.histories);
+        break;
       case 'workspace.started':
         upsertWorkspace(event.workspace);
         if (!selectedWorkspaceKey.value) selectWorkspace(workspaceKey(event.workspace));
         break;
       case 'agent.message':
-        receiveAgentMessage(event.message);
         break;
       case 'agent.failure':
         receiveFailure(event.failure);
@@ -275,45 +199,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
   }
 
-  function receiveAgentMessage(event: {
-    id: string;
-    workspace: WorkspaceRef;
-    agent: string;
-    message: AgentMessage;
-  }) {
-    const key = workspaceKey(event.workspace);
-    const decoded = decodeMessage(event.message);
-    const pending = messages.value.find(
-      (entry) =>
-        entry.workspaceKey === key &&
-        entry.id === event.id &&
-        entry.role === 'user' &&
-        entry.delivery === 'pending',
-    );
-
-    if (decoded.role === 'user' && pending) {
-      pending.agent = event.agent;
-      pending.delivery = 'sent';
-      if (pending.requestedAgent === null) learnManager(event.workspace, event.agent);
-      return;
-    }
-
-    ensureWorkspaceAgent(event.workspace, event.agent);
-    messages.value.push({
-      key: `remote:${event.id}:${decoded.role}:${Date.now()}:${messages.value.length}`,
-      id: event.id,
-      workspaceKey: key,
-      agent: event.agent,
-      requestedAgent: event.agent,
-      role: decoded.role,
-      content: decoded.content,
-      toolCalls: decoded.toolCalls,
-      timestamp: Date.now(),
-      delivery: 'sent',
-    });
-    trimMessages();
-  }
-
   function receiveFailure(event: {
     id: string;
     workspace: WorkspaceRef;
@@ -321,19 +206,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     kind: string;
     message: string;
   }) {
-    ensureWorkspaceAgent(event.workspace, event.agent);
-    messages.value.push({
-      key: `failure:${event.id}:${Date.now()}`,
-      id: event.id,
-      workspaceKey: workspaceKey(event.workspace),
-      agent: event.agent,
-      requestedAgent: event.agent,
-      role: 'failure',
-      content: event.message,
-      toolCalls: [],
-      timestamp: Date.now(),
-      delivery: 'failed',
-    });
     logs.value.push({
       key: `failure-log:${event.id}:${Date.now()}`,
       timestamp: Date.now(),
@@ -342,34 +214,52 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       message: event.message,
       fields: [{ name: 'kind', value: event.kind }],
     });
-    trimMessages();
   }
 
   function upsertWorkspace(workspace: WorkspaceInfo) {
     const key = workspaceKey(workspace);
     const index = workspaces.value.findIndex((candidate) => workspaceKey(candidate) === key);
-    const normalized = { ...workspace, agents: uniqueNames(workspace.agents) };
+    const normalized = normalizeWorkspace(workspace);
     if (index === -1) workspaces.value.push(normalized);
     else workspaces.value[index] = normalized;
   }
 
-  function ensureWorkspaceAgent(workspace: WorkspaceRef, agent: string) {
-    const key = workspaceKey(workspace);
-    const current = workspaces.value.find((candidate) => workspaceKey(candidate) === key);
-    if (!current) {
-      workspaces.value.push({ ...workspace, manager: '', agents: [agent] });
-      if (!selectedWorkspaceKey.value) selectWorkspace(key);
-      return;
+  function synchronizeWorkspaces(snapshot: WorkspaceInfo[]) {
+    const next = snapshot
+      .map(normalizeWorkspace)
+      .filter((workspace) => workspace.name && workspace.project_root);
+    if (sameWorkspaceList(workspaces.value, next)) return;
+
+    workspaces.value = next;
+    if (!next.some((workspace) => workspaceKey(workspace) === selectedWorkspaceKey.value)) {
+      selectedWorkspaceKey.value = next[0] ? workspaceKey(next[0]) : '';
+      selectedAgent.value = null;
+    } else if (
+      selectedAgent.value &&
+      !selectedWorkspace.value?.agents.includes(selectedAgent.value)
+    ) {
+      selectedAgent.value = null;
     }
-    if (!current.agents.includes(agent)) current.agents.push(agent);
   }
 
-  function learnManager(workspace: WorkspaceRef, agent: string) {
-    ensureWorkspaceAgent(workspace, agent);
-    const current = workspaces.value.find(
-      (candidate) => workspaceKey(candidate) === workspaceKey(workspace),
+  function synchronizeHistories(histories: AgentHistory[]) {
+    messages.value = histories.flatMap((history) =>
+      history.messages.map((entry) => {
+        const decoded = decodeMessage(entry.message);
+        return {
+          key: `history:${workspaceKey(history.workspace)}:${history.agent}:${entry.sequence}`,
+          id: entry.turn_id,
+          sequence: entry.sequence,
+          workspaceKey: workspaceKey(history.workspace),
+          agent: history.agent,
+          role: decoded.role,
+          content: decoded.content,
+          toolCalls: decoded.toolCalls,
+          resources: entry.resources,
+          timestamp: entry.created_at_ms,
+        };
+      }),
     );
-    if (current && !current.manager) current.manager = agent;
   }
 
   function scheduleReconnect() {
@@ -392,18 +282,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     current.close();
   }
 
-  function markPendingMessagesFailed() {
-    for (const message of messages.value) {
-      if (message.delivery === 'pending') message.delivery = 'failed';
-    }
-  }
-
-  function trimMessages() {
-    if (messages.value.length > MAX_MESSAGES) {
-      messages.value.splice(0, messages.value.length - MAX_MESSAGES);
-    }
-  }
-
   return {
     endpoint,
     connectionStatus,
@@ -413,17 +291,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectedWorkspace,
     selectedAgent,
     selectedAgentName,
-    selectedAgentBusy,
     visibleMessages,
     logs,
     connect,
     disconnect,
-    addWorkspace,
-    removeWorkspace,
     selectWorkspace,
     selectAgent,
     sendMessage,
-    clearConversation,
     clearLogs,
   };
 });
@@ -456,6 +330,35 @@ function uniqueNames(names: string[]): string[] {
   return [...new Set(names.map((name) => name.trim()).filter(Boolean))];
 }
 
+function normalizeWorkspace(workspace: WorkspaceInfo): WorkspaceInfo {
+  const normalized: WorkspaceInfo = {
+    name: workspace.name.trim(),
+    project_root: workspace.project_root.trim(),
+    manager: workspace.manager.trim(),
+    agents: uniqueNames(workspace.agents),
+  };
+  if (normalized.manager && !normalized.agents.includes(normalized.manager)) {
+    normalized.agents.unshift(normalized.manager);
+  }
+  return normalized;
+}
+
+function sameWorkspaceList(left: WorkspaceInfo[], right: WorkspaceInfo[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((workspace, index) => {
+      const candidate = right[index];
+      return (
+        candidate &&
+        workspaceKey(workspace) === workspaceKey(candidate) &&
+        workspace.manager === candidate.manager &&
+        workspace.agents.length === candidate.agents.length &&
+        workspace.agents.every((agent, agentIndex) => agent === candidate.agents[agentIndex])
+      );
+    })
+  );
+}
+
 function normalizeEndpoint(raw: string): string {
   let value = raw.trim();
   if (!value) throw new Error('Daemon URL is required');
@@ -468,35 +371,4 @@ function normalizeEndpoint(raw: string): string {
   }
   if (url.pathname === '/') url.pathname = '/ws';
   return url.toString();
-}
-
-function loadState(): PersistedState {
-  const fallback: PersistedState = {
-    endpoint: DEFAULT_ENDPOINT,
-    workspaces: [],
-    selectedWorkspaceKey: '',
-    messages: [],
-  };
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return fallback;
-    const value = JSON.parse(raw) as Partial<PersistedState>;
-    return {
-      endpoint: typeof value.endpoint === 'string' ? value.endpoint : fallback.endpoint,
-      workspaces: Array.isArray(value.workspaces) ? value.workspaces : [],
-      selectedWorkspaceKey:
-        typeof value.selectedWorkspaceKey === 'string' ? value.selectedWorkspaceKey : '',
-      messages: Array.isArray(value.messages) ? value.messages : [],
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-function saveState(state: PersistedState) {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // Storage is optional; the live WebSocket session remains usable.
-  }
 }

@@ -8,6 +8,30 @@ export interface WorkspaceInfo extends WorkspaceRef {
   agents: string[];
 }
 
+export interface ResourceRef {
+  provider: string;
+  name: string;
+}
+
+export interface HistoryMessage {
+  sequence: number;
+  turn_id: string;
+  message: AgentMessage;
+  resources: ResourceRef[];
+  created_at_ms: number;
+}
+
+export interface AgentHistory {
+  workspace: WorkspaceRef;
+  agent: string;
+  messages: HistoryMessage[];
+}
+
+export interface BackendState {
+  workspaces: WorkspaceInfo[];
+  histories: AgentHistory[];
+}
+
 export interface ToolCall {
   id: string;
   name: string;
@@ -34,36 +58,42 @@ export interface LogRecord {
   spans: string[];
 }
 
-export type ClientRequest = {
-  type: 'agent.message';
-  id: string;
-  workspace: WorkspaceRef;
-  agent: string | null;
-  content: string;
-};
+export type ClientRequest =
+  | {
+      type: 'connection.register';
+      client_type: string;
+    }
+  | {
+      type: 'agent.message';
+      id: string;
+      workspace: WorkspaceRef;
+      agent: string | null;
+      content: string;
+    };
 
 export type ServerEvent =
   | { type: 'log'; record: LogRecord }
+  | { type: 'state.sync'; state: BackendState }
   | { type: 'workspace.started'; id: string; workspace: WorkspaceInfo }
   | {
-    type: 'agent.message';
-    message: {
-      id: string;
-      workspace: WorkspaceRef;
-      agent: string;
-      message: AgentMessage;
-    };
-  }
+      type: 'agent.message';
+      message: {
+        id: string;
+        workspace: WorkspaceRef;
+        agent: string;
+        message: AgentMessage;
+      };
+    }
   | {
-    type: 'agent.failure';
-    failure: {
-      id: string;
-      workspace: WorkspaceRef;
-      agent: string;
-      kind: string;
-      message: string;
+      type: 'agent.failure';
+      failure: {
+        id: string;
+        workspace: WorkspaceRef;
+        agent: string;
+        kind: string;
+        message: string;
+      };
     };
-  };
 
 export function parseServerEvent(raw: string): ServerEvent | null {
   try {
@@ -73,6 +103,17 @@ export function parseServerEvent(raw: string): ServerEvent | null {
     switch (value.type) {
       case 'log':
         return isRecord(value.record) ? (value as ServerEvent) : null;
+      case 'state.sync':
+        if (!isRecord(value.state) || !Array.isArray(value.state.workspaces)) return null;
+        return {
+          type: 'state.sync',
+          state: {
+            workspaces: value.state.workspaces as WorkspaceInfo[],
+            histories: Array.isArray(value.state.histories)
+              ? (value.state.histories as AgentHistory[])
+              : [],
+          },
+        };
       case 'workspace.started':
         return isRecord(value.workspace) ? (value as ServerEvent) : null;
       case 'agent.message':

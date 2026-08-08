@@ -531,12 +531,6 @@ textarea:focus-visible {
   flex-direction: row-reverse;
 }
 
-.message-row--failure {
-  padding: 11px 13px;
-  border-left: 2px solid #d96f59;
-  background: #241a18;
-}
-
 .message-avatar {
   display: grid;
   width: 28px;
@@ -561,12 +555,6 @@ textarea:focus-visible {
   background: #34231d;
 }
 
-.message-row--failure .message-avatar {
-  color: #ed9278;
-  border-color: #704137;
-  background: #37211d;
-}
-
 .message-body {
   min-width: 0;
   flex: 1;
@@ -585,18 +573,10 @@ textarea:focus-visible {
   font-weight: 680;
 }
 
-.message-meta>span {
+.message-meta > span {
   color: #737e75;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10px;
-}
-
-.delivery-label {
-  color: #d1ad60 !important;
-}
-
-.delivery-label--failed {
-  color: #e88368 !important;
 }
 
 .message-content {
@@ -619,11 +599,6 @@ textarea:focus-visible {
 .message-row--tool .message-content,
 .message-row--system .message-content {
   color: #9ca89e;
-  font-size: 12px;
-}
-
-.message-row--failure .message-content {
-  color: #f0b09b;
   font-size: 12px;
 }
 
@@ -992,16 +967,6 @@ textarea:focus-visible {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 25px;
-}
-
-.spin {
-  animation: spin 0.9s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .mobile-scrim {

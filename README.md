@@ -23,14 +23,20 @@ Workspace 文件仍由 CLI 编译并发送：
 cargo run -p margatroid_cli -- workspace up ../demo_workspace/margatroid-workspace.yaml
 ```
 
-UI 会监听 `workspace.started`，记录 Workspace 的 manager 和 Agent 列表。也可以手动添加一个已经
-运行的 Workspace 引用；这不会重新启动 Workspace，只保存名称和项目根目录供消息路由使用。
+UI 使用 daemon 的 `state.sync` 快照维护 Workspace 列表和对话历史。对话历史来自后端各 Agent SQLite
+的 `history_messages`，其中只包含可展示内容和资源引用；用于模型上下文恢复的 `realtime_messages` 不会
+发送给 UI。
+
+UI 不使用 `localStorage`、`sessionStorage` 或其他持久化机制保存业务状态，不对发送中的消息做乐观
+追加，也不从 `agent.message` 自行拼接历史。每次 `state.sync` 都会整体替换当前 Workspace 和对话视图，
+页面刷新、daemon 重启或数据库删除后的显示结果完全以后端快照为准。
 
 ## 协议
 
 发送用户消息时，选中的普通 Agent 会写入 `agent`；选中 manager 路由时发送 `agent: null`，由 daemon
-查询 Workspace.manager。daemon 返回的 `agent.message` 携带已经解析出的 Agent 名称，消息内容使用
-`margatroid_types::Message` 的 serde 枚举形状。运行日志和推理失败分别显示在 Activity 面板和对话中。
+查询 Workspace.manager。daemon 返回的 `agent.message` 携带已经解析出的 Agent 名称，但 UI 不将它
+直接写入对话；对话只消费后续 `state.sync.histories`。运行日志和 Agent/Inference 轮次失败显示在
+Activity 面板。
 
 ## 检查
 
