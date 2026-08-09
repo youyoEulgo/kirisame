@@ -2,10 +2,10 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 
 import {
-  parseServerEvent,
+  parseServerMessage,
   type AgentHistory,
   type AgentMessage,
-  type ClientRequest,
+  type ClientMessage,
   type ResourceRef,
   type ToolCall,
   type WorkspaceInfo,
@@ -99,9 +99,12 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
     nextSocket.onopen = () => {
       if (socket !== nextSocket) return;
-      const registration: ClientRequest = {
+      const registration: ClientMessage = {
         type: 'connection.register',
-        client_type: 'webui',
+        id: crypto.randomUUID(),
+        message: {
+          client_type: 'webui',
+        },
       };
       nextSocket.send(JSON.stringify(registration));
       reconnectAttempt = 0;
@@ -111,8 +114,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
     nextSocket.onmessage = (event) => {
       if (typeof event.data !== 'string') return;
-      const message = parseServerEvent(event.data);
-      if (message) handleServerEvent(message);
+      const message = parseServerMessage(event.data);
+      if (message) handleServerMessage(message);
     };
 
     nextSocket.onerror = () => {
@@ -154,12 +157,16 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }
 
     const id = crypto.randomUUID();
-    const request: ClientRequest = {
+    const request: ClientMessage = {
       type: 'agent.message',
       id,
-      workspace: workspaceReference(workspace),
-      agent: selectedAgent.value,
-      content: text,
+      message: {
+        workspace: workspaceReference(workspace),
+        agent: selectedAgent.value,
+        message: {
+          content: text,
+        },
+      },
     };
     socket.send(JSON.stringify(request));
     return id;
@@ -169,7 +176,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     logs.value = [];
   }
 
-  function handleServerEvent(event: ReturnType<typeof parseServerEvent> & object) {
+  function handleServerMessage(event: ReturnType<typeof parseServerMessage> & object) {
     if (!event) return;
     switch (event.type) {
       case 'state.sync':
@@ -316,9 +323,6 @@ function decodeMessage(message: AgentMessage): {
   toolCalls: ToolCall[];
 } {
   if ('User' in message) return { role: 'user', content: message.User.content, toolCalls: [] };
-  if ('System' in message)
-    return { role: 'system', content: message.System.content, toolCalls: [] };
-  if ('Tool' in message) return { role: 'tool', content: message.Tool.content, toolCalls: [] };
   return {
     role: 'assistant',
     content: message.Assistant.content ?? '',

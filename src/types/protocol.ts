@@ -39,10 +39,7 @@ export interface ToolCall {
 }
 
 export type AgentMessage =
-  | { System: { content: string } }
-  | { User: { content: string } }
-  | { Assistant: { content: string | null; tool_calls: ToolCall[] } }
-  | { Tool: { tool_call_id: string; content: string } };
+  { User: { content: string } } | { Assistant: { content: string | null; tool_calls: ToolCall[] } };
 
 export interface LogField {
   name: string;
@@ -58,20 +55,27 @@ export interface LogRecord {
   spans: string[];
 }
 
-export type ClientRequest =
+export type ClientMessage =
   | {
       type: 'connection.register';
-      client_type: string;
+      id: string;
+      message: {
+        client_type: string;
+      };
     }
   | {
       type: 'agent.message';
       id: string;
-      workspace: WorkspaceRef;
-      agent: string | null;
-      content: string;
+      message: {
+        workspace: WorkspaceRef;
+        agent: string | null;
+        message: {
+          content: string;
+        };
+      };
     };
 
-export type ServerEvent =
+export type ServerMessage =
   | { type: 'log'; record: LogRecord }
   | { type: 'state.sync'; state: BackendState }
   | { type: 'workspace.started'; id: string; workspace: WorkspaceInfo }
@@ -95,14 +99,14 @@ export type ServerEvent =
       };
     };
 
-export function parseServerEvent(raw: string): ServerEvent | null {
+export function parseServerMessage(raw: string): ServerMessage | null {
   try {
     const value: unknown = JSON.parse(raw);
     if (!isRecord(value) || typeof value.type !== 'string') return null;
 
     switch (value.type) {
       case 'log':
-        return isRecord(value.record) ? (value as ServerEvent) : null;
+        return isRecord(value.record) ? (value as ServerMessage) : null;
       case 'state.sync':
         if (!isRecord(value.state) || !Array.isArray(value.state.workspaces)) return null;
         return {
@@ -115,11 +119,11 @@ export function parseServerEvent(raw: string): ServerEvent | null {
           },
         };
       case 'workspace.started':
-        return isRecord(value.workspace) ? (value as ServerEvent) : null;
+        return isRecord(value.workspace) ? (value as ServerMessage) : null;
       case 'agent.message':
-        return isRecord(value.message) ? (value as ServerEvent) : null;
+        return isRecord(value.message) ? (value as ServerMessage) : null;
       case 'agent.failure':
-        return isRecord(value.failure) ? (value as ServerEvent) : null;
+        return isRecord(value.failure) ? (value as ServerMessage) : null;
       default:
         return null;
     }
