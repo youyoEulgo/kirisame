@@ -40,6 +40,16 @@ export interface RuntimeLog {
   fields: Array<{ name: string; value: string }>;
 }
 
+interface PendingMessageRoute {
+  workspaceKey: string;
+  agent: string;
+}
+
+interface CurrentMessage extends ConversationEntry {
+  completed: boolean;
+  backendAgentId: string;
+}
+
 export const useWorkbenchStore = defineStore('workbench', () => {
   const endpoint = ref(DEFAULT_ENDPOINT);
   const connectionStatus = ref<ConnectionStatus>('offline');
@@ -48,6 +58,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const selectedWorkspaceKey = ref('');
   const selectedAgent = ref<string | null>(null);
   const messages = ref<ConversationEntry[]>([]);
+  const currentMessages = ref<Map<string, CurrentMessage>>(new Map());
+  const pendingRoutes = new Map<string, PendingMessageRoute>();
   const logs = ref<RuntimeLog[]>([]);
 
   let socket: WebSocket | null = null;
@@ -71,11 +83,16 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     const workspace = selectedWorkspace.value;
     if (!workspace) return [];
 
-    return messages.value.filter((entry) => {
+    const routeAgent = selectedAgent.value || workspace.manager;
+    const history = messages.value.filter((entry) => {
       if (entry.workspaceKey !== workspaceKey(workspace)) return false;
       if (selectedAgent.value) return entry.agent === selectedAgent.value;
       return workspace.manager ? entry.agent === workspace.manager : true;
     });
+    const current = [...currentMessages.value.values()].filter(
+      (entry) => entry.workspaceKey === workspaceKey(workspace) && entry.agent === routeAgent,
+    );
+    return [...history, ...current];
   });
 
   function connect(nextEndpoint?: string): boolean {
@@ -91,6 +108,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     shouldReconnect = true;
     clearReconnectTimer();
     closeSocket();
+    clearCurrentMessages();
     connectionError.value = '';
     connectionStatus.value = 'connecting';
 
@@ -126,6 +144,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       if (socket !== nextSocket) return;
       socket = null;
       connectionStatus.value = 'offline';
+      clearCurrentMessages();
       if (shouldReconnect) scheduleReconnect();
     };
     return true;
@@ -135,6 +154,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     shouldReconnect = false;
     clearReconnectTimer();
     closeSocket();
+    clearCurrentMessages();
     connectionStatus.value = 'offline';
   }
 
@@ -168,6 +188,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         },
       },
     };
+    pendingRoutes.set(id, {
+      workspaceKey: workspaceKey(workspace),
+      agent: selectedAgent.value || workspace.manager,
+    });
     socket.send(JSON.stringify(request));
     return id;
   }
@@ -182,12 +206,17 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       case 'state.sync':
         synchronizeWorkspaces(event.state.workspaces);
         synchronizeHistories(event.state.histories);
+        reconcileCurrentMessages();
         break;
       case 'workspace.started':
         upsertWorkspace(event.workspace);
         if (!selectedWorkspaceKey.value) selectWorkspace(workspaceKey(event.workspace));
         break;
       case 'agent.message':
+        receiveAgentMessage(event.message);
+        break;
+      case 'agent.message.delta':
+        receiveMessageDelta(event);
         break;
       case 'agent.failure':
         receiveFailure(event.failure);
@@ -213,6 +242,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     kind: string;
     message: string;
   }) {
+    removeCurrentMessage(event.id);
     logs.value.push({
       key: `failure-log:${event.id}:${Date.now()}`,
       timestamp: Date.now(),
@@ -221,6 +251,96 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       message: event.message,
       fields: [{ name: 'kind', value: event.kind }],
     });
+  }
+
+  function receiveMessageDelta(event: { id: string; agent: string; content: string }) {
+    const route = pendingRoutes.get(event.id);
+    if (!route) return;
+    const existing = currentMessages.value.get(event.id);
+    if (existing?.completed) return;
+    if (existing?.backendAgentId && existing.backendAgentId !== event.agent) return;
+
+    const next: CurrentMessage = existing
+      ? { ...existing, content: existing.content + event.content, backendAgentId: event.agent }
+      : {
+          key: `current:${event.id}`,
+          id: event.id,
+          sequence: Number.MAX_SAFE_INTEGER,
+          workspaceKey: route.workspaceKey,
+          agent: route.agent,
+          role: 'assistant',
+          content: event.content,
+          toolCalls: [],
+          resources: [],
+          timestamp: Date.now(),
+          completed: false,
+          backendAgentId: event.agent,
+        };
+    replaceCurrentMessage(event.id, next);
+  }
+
+  function receiveAgentMessage(event: {
+    id: string;
+    workspace: WorkspaceRef;
+    agent: string;
+    message: AgentMessage;
+  }) {
+    if (!('Assistant' in event.message)) return;
+    const route = pendingRoutes.get(event.id) ?? {
+      workspaceKey: workspaceKey(event.workspace),
+      agent: event.agent,
+    };
+    const existing = currentMessages.value.get(event.id);
+    const next: CurrentMessage = {
+      key: `current:${event.id}`,
+      id: event.id,
+      sequence: Number.MAX_SAFE_INTEGER,
+      workspaceKey: route.workspaceKey,
+      agent: route.agent,
+      role: 'assistant',
+      content: event.message.Assistant.content ?? '',
+      toolCalls: event.message.Assistant.tool_calls,
+      resources: [],
+      timestamp: existing?.timestamp ?? Date.now(),
+      completed: true,
+      backendAgentId: existing?.backendAgentId ?? '',
+    };
+    pendingRoutes.set(event.id, route);
+    replaceCurrentMessage(event.id, next);
+    reconcileCurrentMessages();
+  }
+
+  function reconcileCurrentMessages() {
+    for (const [id, current] of currentMessages.value) {
+      if (!current.completed) continue;
+      const persisted = messages.value.some(
+        (message) =>
+          message.id === id &&
+          message.workspaceKey === current.workspaceKey &&
+          message.agent === current.agent &&
+          message.role === 'assistant',
+      );
+      if (persisted) removeCurrentMessage(id);
+    }
+  }
+
+  function replaceCurrentMessage(id: string, message: CurrentMessage) {
+    const next = new Map(currentMessages.value);
+    next.set(id, message);
+    currentMessages.value = next;
+  }
+
+  function removeCurrentMessage(id: string) {
+    pendingRoutes.delete(id);
+    if (!currentMessages.value.has(id)) return;
+    const next = new Map(currentMessages.value);
+    next.delete(id);
+    currentMessages.value = next;
+  }
+
+  function clearCurrentMessages() {
+    pendingRoutes.clear();
+    currentMessages.value = new Map();
   }
 
   function upsertWorkspace(workspace: WorkspaceInfo) {

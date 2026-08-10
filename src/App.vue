@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import {
   Activity,
@@ -76,6 +76,11 @@ const currentChannelLabel = computed(() => {
   if (selectedAgent.value) return selectedAgent.value;
   return workspace.manager ? `${workspace.manager} · manager route` : 'Manager route';
 });
+
+watch(
+  () => visibleMessages.value.map((message) => `${message.key}:${message.content.length}`),
+  () => nextTick(scrollMessages),
+);
 
 onMounted(() => {
   if (!selectedWorkspace.value && workspaces.value[0]) {

@@ -89,6 +89,12 @@ export type ServerMessage =
       };
     }
   | {
+      type: 'agent.message.delta';
+      id: string;
+      agent: string;
+      content: string;
+    }
+  | {
       type: 'agent.failure';
       failure: {
         id: string;
@@ -122,6 +128,12 @@ export function parseServerMessage(raw: string): ServerMessage | null {
         return isRecord(value.workspace) ? (value as ServerMessage) : null;
       case 'agent.message':
         return isRecord(value.message) ? (value as ServerMessage) : null;
+      case 'agent.message.delta':
+        return typeof value.id === 'string' &&
+          typeof value.agent === 'string' &&
+          typeof value.content === 'string'
+          ? (value as ServerMessage)
+          : null;
       case 'agent.failure':
         return isRecord(value.failure) ? (value as ServerMessage) : null;
       default:
