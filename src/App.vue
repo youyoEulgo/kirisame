@@ -38,6 +38,7 @@ const {
   selectedWorkspace,
   selectedAgent,
   selectedAgentName,
+  visibleSkills,
   visibleMessages,
   logs,
 } = storeToRefs(store);
@@ -339,16 +340,6 @@ function logLevelClass(log: RuntimeLog) {
                 <code v-if="tool.arguments">{{ toolArguments(tool.arguments) }}</code>
               </div>
             </div>
-            <div v-if="message.resources.length" class="tool-call-list">
-              <div
-                v-for="resource in message.resources"
-                :key="`${resource.provider}:${resource.name}`"
-                class="tool-call-row"
-              >
-                <Wrench :size="14" />
-                <span>{{ resource.provider }}:{{ resource.name }}</span>
-              </div>
-            </div>
             <div v-if="message.role === 'tool'" class="tool-response-label">Tool response</div>
           </div>
         </article>
@@ -365,6 +356,16 @@ function logLevelClass(log: RuntimeLog) {
           <span class="context-dot"></span>
           <span>Message {{ selectedAgentName }}</span>
           <span v-if="selectedWorkspace">in {{ selectedWorkspace.name }}</span>
+        </div>
+        <div v-if="selectedWorkspace" class="visible-skills" aria-label="Visible skills">
+          <div class="visible-skills-label">
+            <Wrench :size="13" />
+            <span>Visible skills</span>
+          </div>
+          <div v-if="visibleSkills.length" class="visible-skills-list">
+            <code v-for="skill in visibleSkills" :key="skill.name">{{ skill.name }}</code>
+          </div>
+          <span v-else class="visible-skills-empty">No visible skills</span>
         </div>
         <form class="composer-box" @submit.prevent="submitMessage">
           <textarea

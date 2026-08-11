@@ -23,9 +23,10 @@ Workspace 文件仍由 CLI 编译并发送：
 cargo run -p margatroid_cli -- workspace up ../demo_workspace/margatroid-workspace.yaml
 ```
 
-UI 使用 daemon 的 `state.sync` 快照维护 Workspace 列表和对话历史。对话历史来自后端各 Agent SQLite
-的 `history_messages`，其中只包含可展示内容和资源引用；用于模型上下文恢复的 `realtime_messages` 不会
-发送给 UI。
+UI 使用 daemon 的 `state.sync` 快照维护 Workspace、Agent动态可见资源和对话历史。对话历史来自后端
+各 Agent SQLite 的 `history_messages`，其中只包含可展示内容；用于模型上下文恢复的
+`realtime_messages` 不会发送给 UI。当前选中Agent的可用Skill来自其`visible_resources`中
+`provider == "skill"`的资源。
 
 UI 不使用 `localStorage`、`sessionStorage` 或其他持久化机制保存业务状态，不对发送中的消息做乐观
 追加，也不从 `agent.message` 自行拼接历史。每次 `state.sync` 都会整体替换当前 Workspace 和对话视图，

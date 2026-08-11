@@ -681,6 +681,45 @@ textarea:focus-visible {
   background: #68c88a;
 }
 
+.visible-skills {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  margin-bottom: 6px;
+  color: #8d9990;
+  font-size: 11px;
+}
+
+.visible-skills-label {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  color: #a8b2aa;
+}
+
+.visible-skills-list {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.visible-skills-list code {
+  padding: 3px 6px;
+  border: 1px solid #39443b;
+  border-radius: 4px;
+  color: #c6d0c8;
+  background: #171c18;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+.visible-skills-empty {
+  color: #657168;
+}
+
 .composer-box {
   display: flex;
   align-items: flex-end;
@@ -1046,6 +1085,10 @@ textarea:focus-visible {
   .composer {
     width: 100%;
     padding: 0 13px 13px;
+  }
+
+  .visible-skills {
+    align-items: flex-start;
   }
 
   .field-grid {

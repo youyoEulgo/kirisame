@@ -5,6 +5,7 @@ import {
   parseServerMessage,
   type AgentHistory,
   type AgentMessage,
+  type AgentState,
   type ClientMessage,
   type ResourceRef,
   type ToolCall,
@@ -27,7 +28,6 @@ export interface ConversationEntry {
   role: MessageRole;
   content: string;
   toolCalls: ToolCall[];
-  resources: ResourceRef[];
   timestamp: number;
 }
 
@@ -55,6 +55,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const connectionStatus = ref<ConnectionStatus>('offline');
   const connectionError = ref('');
   const workspaces = ref<WorkspaceInfo[]>([]);
+  const agentStates = ref<AgentState[]>([]);
   const selectedWorkspaceKey = ref('');
   const selectedAgent = ref<string | null>(null);
   const messages = ref<ConversationEntry[]>([]);
@@ -77,6 +78,20 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const selectedAgentName = computed(() => {
     if (selectedAgent.value) return selectedAgent.value;
     return selectedWorkspace.value?.manager || 'Manager';
+  });
+
+  const visibleSkills = computed<ResourceRef[]>(() => {
+    const workspace = selectedWorkspace.value;
+    if (!workspace) return [];
+    const agent = selectedAgent.value || workspace.manager;
+    return (
+      agentStates.value
+        .find(
+          (state) =>
+            workspaceKey(state.workspace) === workspaceKey(workspace) && state.agent === agent,
+        )
+        ?.visible_resources.filter((resource) => resource.provider === 'skill') ?? []
+    );
   });
 
   const visibleMessages = computed(() => {
@@ -205,12 +220,15 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     switch (event.type) {
       case 'state.sync':
         synchronizeWorkspaces(event.state.workspaces);
+        synchronizeAgentStates(event.state.agents);
         synchronizeHistories(event.state.histories);
         reconcileCurrentMessages();
         break;
       case 'workspace.started':
         upsertWorkspace(event.workspace);
         if (!selectedWorkspaceKey.value) selectWorkspace(workspaceKey(event.workspace));
+        break;
+      case 'workspace.start_failed':
         break;
       case 'agent.message':
         receiveAgentMessage(event.message);
@@ -271,7 +289,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           role: 'assistant',
           content: event.content,
           toolCalls: [],
-          resources: [],
           timestamp: Date.now(),
           completed: false,
           backendAgentId: event.agent,
@@ -300,7 +317,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       role: 'assistant',
       content: event.message.Assistant.content ?? '',
       toolCalls: event.message.Assistant.tool_calls,
-      resources: [],
       timestamp: existing?.timestamp ?? Date.now(),
       completed: true,
       backendAgentId: existing?.backendAgentId ?? '',
@@ -382,11 +398,18 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           role: decoded.role,
           content: decoded.content,
           toolCalls: decoded.toolCalls,
-          resources: entry.resources,
           timestamp: entry.created_at_ms,
         };
       }),
     );
+  }
+
+  function synchronizeAgentStates(snapshot: AgentState[]) {
+    agentStates.value = snapshot.map((state) => ({
+      workspace: { ...state.workspace },
+      agent: state.agent,
+      visible_resources: state.visible_resources.map((resource) => ({ ...resource })),
+    }));
   }
 
   function scheduleReconnect() {
@@ -414,10 +437,12 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     connectionStatus,
     connectionError,
     workspaces,
+    agentStates,
     selectedWorkspaceKey,
     selectedWorkspace,
     selectedAgent,
     selectedAgentName,
+    visibleSkills,
     visibleMessages,
     logs,
     connect,
@@ -442,11 +467,24 @@ function decodeMessage(message: AgentMessage): {
   content: string;
   toolCalls: ToolCall[];
 } {
-  if ('User' in message) return { role: 'user', content: message.User.content, toolCalls: [] };
+  if ('User' in message) {
+    return {
+      role: 'user',
+      content: message.User.content,
+      toolCalls: message.User.tool_calls,
+    };
+  }
+  if ('Assistant' in message) {
+    return {
+      role: 'assistant',
+      content: message.Assistant.content ?? '',
+      toolCalls: message.Assistant.tool_calls,
+    };
+  }
   return {
-    role: 'assistant',
-    content: message.Assistant.content ?? '',
-    toolCalls: message.Assistant.tool_calls,
+    role: 'tool',
+    content: message.Tool.content,
+    toolCalls: [],
   };
 }
 

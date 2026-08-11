@@ -13,11 +13,16 @@ export interface ResourceRef {
   name: string;
 }
 
+export interface AgentState {
+  workspace: WorkspaceRef;
+  agent: string;
+  visible_resources: ResourceRef[];
+}
+
 export interface HistoryMessage {
   sequence: number;
   turn_id: string;
   message: AgentMessage;
-  resources: ResourceRef[];
   created_at_ms: number;
 }
 
@@ -29,6 +34,7 @@ export interface AgentHistory {
 
 export interface BackendState {
   workspaces: WorkspaceInfo[];
+  agents: AgentState[];
   histories: AgentHistory[];
 }
 
@@ -39,7 +45,9 @@ export interface ToolCall {
 }
 
 export type AgentMessage =
-  { User: { content: string } } | { Assistant: { content: string | null; tool_calls: ToolCall[] } };
+  | { User: { content: string; tool_calls: ToolCall[] } }
+  | { Assistant: { content: string | null; tool_calls: ToolCall[] } }
+  | { Tool: { tool_call_id: string; content: string } };
 
 export interface LogField {
   name: string;
@@ -79,6 +87,7 @@ export type ServerMessage =
   | { type: 'log'; record: LogRecord }
   | { type: 'state.sync'; state: BackendState }
   | { type: 'workspace.started'; id: string; workspace: WorkspaceInfo }
+  | { type: 'workspace.start_failed'; id: string; error: string }
   | {
       type: 'agent.message';
       message: {
@@ -119,6 +128,7 @@ export function parseServerMessage(raw: string): ServerMessage | null {
           type: 'state.sync',
           state: {
             workspaces: value.state.workspaces as WorkspaceInfo[],
+            agents: Array.isArray(value.state.agents) ? (value.state.agents as AgentState[]) : [],
             histories: Array.isArray(value.state.histories)
               ? (value.state.histories as AgentHistory[])
               : [],
@@ -126,6 +136,10 @@ export function parseServerMessage(raw: string): ServerMessage | null {
         };
       case 'workspace.started':
         return isRecord(value.workspace) ? (value as ServerMessage) : null;
+      case 'workspace.start_failed':
+        return typeof value.id === 'string' && typeof value.error === 'string'
+          ? (value as ServerMessage)
+          : null;
       case 'agent.message':
         return isRecord(value.message) ? (value as ServerMessage) : null;
       case 'agent.message.delta':
