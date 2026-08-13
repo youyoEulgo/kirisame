@@ -699,11 +699,35 @@ textarea:focus-visible {
   color: #a8b2aa;
 }
 
+.skill-clear-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  border: 0;
+  padding: 2px 4px;
+  color: #8d9990;
+  background: transparent;
+  cursor: pointer;
+}
+
+.skill-clear-button:hover {
+  color: #d88181;
+}
+
 .visible-skills-list {
   display: flex;
   min-width: 0;
   flex-wrap: wrap;
   gap: 5px;
+}
+
+.visible-skill-row {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid #39443b;
+  background: #171c18;
 }
 
 .visible-skills-list code {
@@ -714,6 +738,29 @@ textarea:focus-visible {
   background: #171c18;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10px;
+}
+
+.skill-toggle-button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border: 0;
+  border-left: 1px solid #39443b;
+  color: #8d9990;
+  background: transparent;
+  cursor: pointer;
+}
+
+.skill-toggle-button:hover:not(:disabled) {
+  color: #9bd9a8;
+  background: #202b22;
+}
+
+.skill-toggle-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .visible-skills-empty {

@@ -94,6 +94,18 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     );
   });
 
+  const loadingSkills = computed<ResourceRef[]>(() => {
+    const workspace = selectedWorkspace.value;
+    if (!workspace) return [];
+    const agent = selectedAgent.value || workspace.manager;
+    return (
+      agentStates.value.find(
+        (state) =>
+          workspaceKey(state.workspace) === workspaceKey(workspace) && state.agent === agent,
+      )?.loading_skills ?? []
+    );
+  });
+
   const visibleMessages = computed(() => {
     const workspace = selectedWorkspace.value;
     if (!workspace) return [];
@@ -207,6 +219,36 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       workspaceKey: workspaceKey(workspace),
       agent: selectedAgent.value || workspace.manager,
     });
+    socket.send(JSON.stringify(request));
+    return id;
+  }
+
+  function setSkillLoading(resourceId: ResourceRef, loaded: boolean): string | null {
+    const workspace = selectedWorkspace.value;
+    if (!workspace || !socket || socket.readyState !== WebSocket.OPEN) return null;
+    const id = crypto.randomUUID();
+    const request: ClientMessage = {
+      type: loaded ? 'agent.skill.load' : 'agent.skill.unload',
+      id,
+      message: {
+        workspace: workspaceReference(workspace),
+        agent: selectedAgent.value,
+        resource_id: resourceId,
+      },
+    };
+    socket.send(JSON.stringify(request));
+    return id;
+  }
+
+  function unloadAllSkills(): string | null {
+    const workspace = selectedWorkspace.value;
+    if (!workspace || !socket || socket.readyState !== WebSocket.OPEN) return null;
+    const id = crypto.randomUUID();
+    const request: ClientMessage = {
+      type: 'agent.skill.unload_all',
+      id,
+      message: { workspace: workspaceReference(workspace), agent: selectedAgent.value },
+    };
     socket.send(JSON.stringify(request));
     return id;
   }
@@ -409,6 +451,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       workspace: { ...state.workspace },
       agent: state.agent,
       visible_resources: [...state.visible_resources],
+      loading_skills: [...(state.loading_skills ?? [])],
     }));
   }
 
@@ -443,6 +486,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectedAgent,
     selectedAgentName,
     visibleSkills,
+    loadingSkills,
     visibleMessages,
     logs,
     connect,
@@ -450,6 +494,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectWorkspace,
     selectAgent,
     sendMessage,
+    setSkillLoading,
+    unloadAllSkills,
     clearLogs,
   };
 });

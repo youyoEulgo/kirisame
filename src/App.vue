@@ -6,6 +6,8 @@ import {
   Bot,
   Check,
   ChevronDown,
+  CircleMinus,
+  CirclePlus,
   CloudOff,
   Command,
   FolderKanban,
@@ -14,6 +16,7 @@ import {
   PanelRight,
   Send,
   Settings2,
+  Trash2,
   UserRound,
   UsersRound,
   Wifi,
@@ -39,6 +42,7 @@ const {
   selectedAgent,
   selectedAgentName,
   visibleSkills,
+  loadingSkills,
   visibleMessages,
   logs,
 } = storeToRefs(store);
@@ -71,6 +75,8 @@ const connectionLabel = computed(() => {
   return 'Offline';
 });
 
+const loadingSkillSet = computed(() => new Set(loadingSkills.value));
+
 const currentChannelLabel = computed(() => {
   const workspace = selectedWorkspace.value;
   if (!workspace) return 'Select a workspace';
@@ -98,6 +104,10 @@ function submitMessage() {
   if (!store.sendMessage(text)) return;
   draft.value = '';
   nextTick(scrollMessages);
+}
+
+function toggleSkill(skill: string) {
+  store.setSkillLoading(skill, !loadingSkillSet.value.has(skill));
 }
 
 function selectWorkspace(key: string) {
@@ -342,7 +352,7 @@ function logLevelClass(log: RuntimeLog) {
             <div v-if="message.toolCalls.length" class="tool-call-list">
               <div v-for="tool in message.toolCalls" :key="tool.id" class="tool-call-row">
                 <Wrench :size="14" />
-                <span>{{ resourceLabel(tool.resource) }}</span>
+                <span>{{ tool.tool_name }}</span>
                 <code v-if="tool.arguments">{{ toolArguments(tool.arguments) }}</code>
               </div>
             </div>
@@ -367,9 +377,32 @@ function logLevelClass(log: RuntimeLog) {
           <div class="visible-skills-label">
             <Wrench :size="13" />
             <span>Visible skills</span>
+            <button
+              v-if="loadingSkills.length"
+              class="skill-clear-button"
+              type="button"
+              title="Unload all skills"
+              @click="store.unloadAllSkills"
+            >
+              <Trash2 :size="13" />
+              <span>Unload all</span>
+            </button>
           </div>
           <div v-if="visibleSkills.length" class="visible-skills-list">
-            <code v-for="skill in visibleSkills" :key="skill">{{ resourceLabel(skill) }}</code>
+            <div v-for="skill in visibleSkills" :key="skill" class="visible-skill-row">
+              <code>{{ resourceLabel(skill) }}</code>
+              <button
+                class="skill-toggle-button"
+                type="button"
+                :title="loadingSkillSet.has(skill) ? 'Unload skill' : 'Load skill'"
+                :aria-label="loadingSkillSet.has(skill) ? 'Unload skill' : 'Load skill'"
+                :disabled="connectionStatus !== 'online'"
+                @click="toggleSkill(skill)"
+              >
+                <CircleMinus v-if="loadingSkillSet.has(skill)" :size="14" />
+                <CirclePlus v-else :size="14" />
+              </button>
+            </div>
           </div>
           <span v-else class="visible-skills-empty">No visible skills</span>
         </div>

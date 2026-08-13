@@ -15,6 +15,7 @@ export interface AgentState {
   workspace: WorkspaceRef;
   agent: string;
   visible_resources: ResourceRef[];
+  loading_skills: ResourceRef[];
 }
 
 export interface HistoryMessage {
@@ -38,14 +39,14 @@ export interface BackendState {
 
 export interface ToolCall {
   id: string;
-  resource: ResourceRef;
+  tool_name: string;
   arguments: string;
 }
 
 export type AgentMessage =
   | { User: { content: string; tool_calls: ToolCall[] } }
   | { Assistant: { content: string | null; tool_calls: ToolCall[] } }
-  | { Tool: { tool_call_id: string; content: string } };
+  | { Tool: { resource_id: ResourceRef; tool_call_id: string; content: string } };
 
 export interface LogField {
   name: string;
@@ -78,6 +79,23 @@ export type ClientMessage =
         message: {
           content: string;
         };
+      };
+    }
+  | {
+      type: 'agent.skill.load' | 'agent.skill.unload';
+      id: string;
+      message: {
+        workspace: WorkspaceRef;
+        agent: string | null;
+        resource_id: ResourceRef;
+      };
+    }
+  | {
+      type: 'agent.skill.unload_all';
+      id: string;
+      message: {
+        workspace: WorkspaceRef;
+        agent: string | null;
       };
     };
 
