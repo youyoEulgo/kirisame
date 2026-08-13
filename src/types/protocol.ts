@@ -1,4 +1,5 @@
 export interface WorkspaceRef {
+  id: string;
   name: string;
   project_root: string;
 }
@@ -8,10 +9,7 @@ export interface WorkspaceInfo extends WorkspaceRef {
   agents: string[];
 }
 
-export interface ResourceRef {
-  provider: string;
-  name: string;
-}
+export type ResourceRef = string;
 
 export interface AgentState {
   workspace: WorkspaceRef;
@@ -40,7 +38,7 @@ export interface BackendState {
 
 export interface ToolCall {
   id: string;
-  name: string;
+  resource: ResourceRef;
   arguments: string;
 }
 

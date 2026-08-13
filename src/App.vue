@@ -159,6 +159,12 @@ function toolArguments(argumentsText: string) {
   }
 }
 
+function resourceLabel(resource: string) {
+  const separator = resource.indexOf(':');
+  const identity = separator >= 0 ? resource.slice(separator + 1) : resource;
+  return identity.endsWith(':latest') ? identity.slice(0, -':latest'.length) : identity;
+}
+
 function logLevelClass(log: RuntimeLog) {
   return `log-level--${log.level.toLowerCase()}`;
 }
@@ -336,7 +342,7 @@ function logLevelClass(log: RuntimeLog) {
             <div v-if="message.toolCalls.length" class="tool-call-list">
               <div v-for="tool in message.toolCalls" :key="tool.id" class="tool-call-row">
                 <Wrench :size="14" />
-                <span>{{ tool.name || 'tool call' }}</span>
+                <span>{{ resourceLabel(tool.resource) }}</span>
                 <code v-if="tool.arguments">{{ toolArguments(tool.arguments) }}</code>
               </div>
             </div>
@@ -363,7 +369,7 @@ function logLevelClass(log: RuntimeLog) {
             <span>Visible skills</span>
           </div>
           <div v-if="visibleSkills.length" class="visible-skills-list">
-            <code v-for="skill in visibleSkills" :key="skill.name">{{ skill.name }}</code>
+            <code v-for="skill in visibleSkills" :key="skill">{{ resourceLabel(skill) }}</code>
           </div>
           <span v-else class="visible-skills-empty">No visible skills</span>
         </div>

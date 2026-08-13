@@ -90,7 +90,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           (state) =>
             workspaceKey(state.workspace) === workspaceKey(workspace) && state.agent === agent,
         )
-        ?.visible_resources.filter((resource) => resource.provider === 'skill') ?? []
+        ?.visible_resources.filter((resource) => resource.startsWith('skill:')) ?? []
     );
   });
 
@@ -408,7 +408,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     agentStates.value = snapshot.map((state) => ({
       workspace: { ...state.workspace },
       agent: state.agent,
-      visible_resources: state.visible_resources.map((resource) => ({ ...resource })),
+      visible_resources: [...state.visible_resources],
     }));
   }
 
@@ -459,7 +459,7 @@ export function workspaceKey(workspace: WorkspaceRef): string {
 }
 
 function workspaceReference(workspace: WorkspaceInfo): WorkspaceRef {
-  return { name: workspace.name, project_root: workspace.project_root };
+  return { id: workspace.id, name: workspace.name, project_root: workspace.project_root };
 }
 
 function decodeMessage(message: AgentMessage): {
@@ -494,6 +494,7 @@ function uniqueNames(names: string[]): string[] {
 
 function normalizeWorkspace(workspace: WorkspaceInfo): WorkspaceInfo {
   const normalized: WorkspaceInfo = {
+    id: workspace.id || `workspace:local/${workspace.name}:latest`,
     name: workspace.name.trim(),
     project_root: workspace.project_root.trim(),
     manager: workspace.manager.trim(),
