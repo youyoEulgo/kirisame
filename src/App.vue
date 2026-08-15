@@ -85,7 +85,10 @@ const currentChannelLabel = computed(() => {
 });
 
 watch(
-  () => visibleMessages.value.map((message) => `${message.key}:${message.content.length}`),
+  () =>
+    visibleMessages.value.map(
+      (message) => `${message.key}:${message.reasoning.length}:${message.content.length}`,
+    ),
   () => nextTick(scrollMessages),
 );
 
@@ -348,6 +351,10 @@ function logLevelClass(log: RuntimeLog) {
               <strong>{{ roleLabel(message) }}</strong>
               <span>{{ formatTime(message.timestamp) }}</span>
             </div>
+            <details v-if="message.reasoning" class="message-reasoning">
+              <summary>Reasoning</summary>
+              <p>{{ message.reasoning }}</p>
+            </details>
             <p v-if="message.content" class="message-content">{{ message.content }}</p>
             <div v-if="message.toolCalls.length" class="tool-call-list">
               <div v-for="tool in message.toolCalls" :key="tool.id" class="tool-call-row">

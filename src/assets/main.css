@@ -588,6 +588,30 @@ textarea:focus-visible {
   white-space: pre-wrap;
 }
 
+.message-reasoning {
+  margin-top: 8px;
+  border-left: 2px solid #465148;
+  color: #939f96;
+}
+
+.message-reasoning summary {
+  width: fit-content;
+  padding: 2px 9px;
+  cursor: pointer;
+  color: #aab5ac;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.message-reasoning p {
+  margin: 4px 0 0;
+  padding: 0 9px 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .message-row--user .message-content {
   padding: 10px 13px;
   border: 1px solid #4e372e;

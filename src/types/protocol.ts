@@ -45,7 +45,7 @@ export interface ToolCall {
 
 export type AgentMessage =
   | { User: { content: string; tool_calls: ToolCall[] } }
-  | { Assistant: { content: string | null; tool_calls: ToolCall[] } }
+  | { Assistant: { reasoning: string | null; content: string | null; tool_calls: ToolCall[] } }
   | { Tool: { resource_id: ResourceRef; tool_call_id: string; content: string } };
 
 export interface LogField {
@@ -120,6 +120,12 @@ export type ServerMessage =
       content: string;
     }
   | {
+      type: 'agent.message.reasoning_delta';
+      id: string;
+      agent: string;
+      content: string;
+    }
+  | {
       type: 'agent.failure';
       failure: {
         id: string;
@@ -159,6 +165,7 @@ export function parseServerMessage(raw: string): ServerMessage | null {
       case 'agent.message':
         return isRecord(value.message) ? (value as ServerMessage) : null;
       case 'agent.message.delta':
+      case 'agent.message.reasoning_delta':
         return typeof value.id === 'string' &&
           typeof value.agent === 'string' &&
           typeof value.content === 'string'

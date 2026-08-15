@@ -26,6 +26,7 @@ export interface ConversationEntry {
   workspaceKey: string;
   agent: string;
   role: MessageRole;
+  reasoning: string;
   content: string;
   toolCalls: ToolCall[];
   timestamp: number;
@@ -278,6 +279,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       case 'agent.message.delta':
         receiveMessageDelta(event);
         break;
+      case 'agent.message.reasoning_delta':
+        receiveReasoningDelta(event);
+        break;
       case 'agent.failure':
         receiveFailure(event.failure);
         break;
@@ -314,7 +318,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   }
 
   function receiveMessageDelta(event: { id: string; agent: string; content: string }) {
-    const route = pendingRoutes.get(event.id);
+    const route = resolveMessageRoute(event.id, event.agent);
     if (!route) return;
     const existing = currentMessages.value.get(event.id);
     if (existing?.completed) return;
@@ -329,7 +333,38 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           workspaceKey: route.workspaceKey,
           agent: route.agent,
           role: 'assistant',
+          reasoning: '',
           content: event.content,
+          toolCalls: [],
+          timestamp: Date.now(),
+          completed: false,
+          backendAgentId: event.agent,
+        };
+    replaceCurrentMessage(event.id, next);
+  }
+
+  function receiveReasoningDelta(event: { id: string; agent: string; content: string }) {
+    const route = resolveMessageRoute(event.id, event.agent);
+    if (!route) return;
+    const existing = currentMessages.value.get(event.id);
+    if (existing?.completed) return;
+    if (existing?.backendAgentId && existing.backendAgentId !== event.agent) return;
+
+    const next: CurrentMessage = existing
+      ? {
+          ...existing,
+          reasoning: existing.reasoning + event.content,
+          backendAgentId: event.agent,
+        }
+      : {
+          key: `current:${event.id}`,
+          id: event.id,
+          sequence: Number.MAX_SAFE_INTEGER,
+          workspaceKey: route.workspaceKey,
+          agent: route.agent,
+          role: 'assistant',
+          reasoning: event.content,
+          content: '',
           toolCalls: [],
           timestamp: Date.now(),
           completed: false,
@@ -357,6 +392,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       workspaceKey: route.workspaceKey,
       agent: route.agent,
       role: 'assistant',
+      reasoning: event.message.Assistant.reasoning ?? '',
       content: event.message.Assistant.content ?? '',
       toolCalls: event.message.Assistant.tool_calls,
       timestamp: existing?.timestamp ?? Date.now(),
@@ -376,7 +412,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           message.id === id &&
           message.workspaceKey === current.workspaceKey &&
           message.agent === current.agent &&
-          message.role === 'assistant',
+          message.role === 'assistant' &&
+          message.reasoning === current.reasoning &&
+          message.content === current.content &&
+          sameToolCalls(message.toolCalls, current.toolCalls),
       );
       if (persisted) removeCurrentMessage(id);
     }
@@ -386,6 +425,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     const next = new Map(currentMessages.value);
     next.set(id, message);
     currentMessages.value = next;
+  }
+
+  function resolveMessageRoute(id: string, agent: string): PendingMessageRoute | undefined {
+    return (
+      pendingRoutes.get(id) ??
+      messages.value.find((message) => message.id === id && message.agent === agent)
+    );
   }
 
   function removeCurrentMessage(id: string) {
@@ -438,6 +484,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           workspaceKey: workspaceKey(history.workspace),
           agent: history.agent,
           role: decoded.role,
+          reasoning: decoded.reasoning,
           content: decoded.content,
           toolCalls: decoded.toolCalls,
           timestamp: entry.created_at_ms,
@@ -510,12 +557,14 @@ function workspaceReference(workspace: WorkspaceInfo): WorkspaceRef {
 
 function decodeMessage(message: AgentMessage): {
   role: MessageRole;
+  reasoning: string;
   content: string;
   toolCalls: ToolCall[];
 } {
   if ('User' in message) {
     return {
       role: 'user',
+      reasoning: '',
       content: message.User.content,
       toolCalls: message.User.tool_calls,
     };
@@ -523,12 +572,14 @@ function decodeMessage(message: AgentMessage): {
   if ('Assistant' in message) {
     return {
       role: 'assistant',
+      reasoning: message.Assistant.reasoning ?? '',
       content: message.Assistant.content ?? '',
       toolCalls: message.Assistant.tool_calls,
     };
   }
   return {
     role: 'tool',
+    reasoning: '',
     content: message.Tool.content,
     toolCalls: [],
   };
@@ -536,6 +587,21 @@ function decodeMessage(message: AgentMessage): {
 
 function uniqueNames(names: string[]): string[] {
   return [...new Set(names.map((name) => name.trim()).filter(Boolean))];
+}
+
+function sameToolCalls(left: ToolCall[], right: ToolCall[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((call, index) => {
+      const candidate = right[index];
+      return (
+        candidate !== undefined &&
+        call.id === candidate.id &&
+        call.tool_name === candidate.tool_name &&
+        call.arguments === candidate.arguments
+      );
+    })
+  );
 }
 
 function normalizeWorkspace(workspace: WorkspaceInfo): WorkspaceInfo {
