@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
+import DOMPurify from 'dompurify';
+import { marked } from 'marked';
 import {
   Activity,
   Bot,
@@ -55,10 +57,14 @@ const {
 } = storeToRefs(store);
 
 const draft = ref('');
+const draftInput = ref<HTMLTextAreaElement | null>(null);
 const messageList = ref<HTMLElement | null>(null);
+const conversationPane = ref<HTMLElement | null>(null);
+const composerFooter = ref<HTMLElement | null>(null);
+let composerObserver: ResizeObserver | undefined;
 const toolManager = ref<HTMLElement | null>(null);
 const sidebarOpen = ref(false);
-const activityOpen = ref(true);
+const activityOpen = ref(false);
 const toolsOpen = ref(false);
 const settingsOpen = ref(false);
 const logFilter = ref<'all' | 'errors'>('all');
@@ -113,13 +119,37 @@ const currentChannelLabel = computed(() => {
   return workspace.manager ? `${resourceName(workspace.manager)} · manager route` : 'Manager route';
 });
 
+const NEAR_BOTTOM_PX = 80;
+
+function shouldFollowMessages() {
+  const list = messageList.value;
+  if (!list) return false;
+  return list.scrollHeight - list.scrollTop - list.clientHeight <= NEAR_BOTTOM_PX;
+}
+
 watch(
   () =>
     visibleMessages.value.map(
       (message) => `${message.key}:${message.reasoning.length}:${message.content.length}`,
     ),
-  () => nextTick(scrollMessages),
+  () => {
+    const follow = shouldFollowMessages();
+    nextTick(() => {
+      if (follow) scrollMessages();
+    });
+  },
 );
+
+const MAX_DRAFT_HEIGHT = 168;
+
+function autosizeDraft() {
+  const input = draftInput.value;
+  if (!input) return;
+  input.style.height = 'auto';
+  input.style.height = `${Math.min(input.scrollHeight, MAX_DRAFT_HEIGHT)}px`;
+}
+
+watch(draft, () => nextTick(autosizeDraft));
 
 function closeToolsOnOutsideClick(event: MouseEvent) {
   if (!toolsOpen.value) return;
@@ -135,10 +165,19 @@ onMounted(() => {
   }
   store.connect();
   document.addEventListener('click', closeToolsOnOutsideClick);
+
+  composerObserver = new ResizeObserver(() => {
+    const pane = conversationPane.value;
+    const footer = composerFooter.value;
+    if (!pane || !footer) return;
+    pane.style.setProperty('--mg-composer-height', `${footer.offsetHeight}px`);
+  });
+  if (composerFooter.value) composerObserver.observe(composerFooter.value);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', closeToolsOnOutsideClick);
+  composerObserver?.disconnect();
   store.disconnect();
 });
 
@@ -185,7 +224,26 @@ function saveSettings() {
 }
 
 function scrollMessages() {
-  messageList.value?.scrollTo({ top: messageList.value.scrollHeight, behavior: 'smooth' });
+  messageList.value?.scrollTo({ top: messageList.value.scrollHeight, behavior: 'instant' });
+}
+
+/** Let the wheel roll through the composer into the message list. */
+function handleComposerWheel(event: WheelEvent) {
+  const list = messageList.value;
+  if (!list) return;
+
+  const target = event.target;
+  if (target instanceof Element) {
+    // Keep native scrolling inside the expanded tool manager panel.
+    if (target.closest('.tool-manager-panel')) return;
+    // Keep native scrolling inside an overflowing textarea draft.
+    if (target instanceof HTMLTextAreaElement && target.scrollHeight > target.clientHeight) {
+      return;
+    }
+  }
+
+  event.preventDefault();
+  list.scrollTop += event.deltaY;
 }
 
 function formatTime(timestamp: number) {
@@ -207,6 +265,16 @@ function roleLabel(message: ConversationEntry) {
   if (message.role === 'assistant') return resourceName(message.agent);
   if (message.role === 'tool') return 'Tool response';
   return 'System';
+}
+
+function renderMarkdown(content: string): string {
+  const rendered = marked.parse(content, {
+    gfm: true,
+    breaks: true,
+  }) as string;
+  // `marked` keeps the trailing newline as a text node after the last block,
+  // which creates a second, empty line inside the inline-block user bubble.
+  return DOMPurify.sanitize(rendered).trim();
 }
 
 function toolArguments(argumentsText: string) {
@@ -329,7 +397,7 @@ function logLevelClass(log: RuntimeLog) {
       </div>
     </aside>
 
-    <main class="conversation-pane">
+    <main ref="conversationPane" class="conversation-pane">
       <header class="conversation-header">
         <button class="icon-button mobile-menu" title="Open navigation" @click="sidebarOpen = true">
           <Menu :size="19" />
@@ -398,15 +466,28 @@ function logLevelClass(log: RuntimeLog) {
               <summary>Reasoning</summary>
               <p>{{ message.reasoning }}</p>
             </details>
-            <p v-if="message.content" class="message-content">{{ message.content }}</p>
+            <details v-if="message.role === 'tool' && message.content" class="tool-response">
+              <summary>
+                <span class="tool-response-label">Tool response</span>
+                <span class="tool-response-summary">{{ message.content }}</span>
+              </summary>
+              <pre class="tool-response-detail">{{ message.content }}</pre>
+            </details>
+            <div
+              v-else-if="message.content"
+              class="message-content"
+              v-html="renderMarkdown(message.content)"
+            ></div>
             <div v-if="message.toolCalls.length" class="tool-call-list">
-              <div v-for="tool in message.toolCalls" :key="tool.id" class="tool-call-row">
-                <Wrench :size="14" />
-                <span>{{ tool.tool_name }}</span>
-                <code v-if="tool.arguments">{{ toolArguments(tool.arguments) }}</code>
-              </div>
+              <details v-for="tool in message.toolCalls" :key="tool.id" class="tool-call-row">
+                <summary>
+                  <Wrench :size="14" />
+                  <span>{{ tool.tool_name }}</span>
+                  <code v-if="tool.arguments">{{ toolArguments(tool.arguments) }}</code>
+                </summary>
+                <pre class="tool-call-detail">{{ tool.arguments ? toolArguments(tool.arguments) : '{}' }}</pre>
+              </details>
             </div>
-            <div v-if="message.role === 'tool'" class="tool-response-label">Tool response</div>
           </div>
         </article>
 
@@ -417,12 +498,37 @@ function logLevelClass(log: RuntimeLog) {
         </div>
       </section>
 
-      <footer class="composer">
-        <div class="composer-context">
-          <span class="context-dot"></span>
-          <span>Message {{ selectedAgentName }}</span>
-          <span v-if="selectedWorkspace">in {{ selectedWorkspace.name }}</span>
-        </div>
+      <footer ref="composerFooter" class="composer" @wheel="handleComposerWheel">
+
+        <form class="composer-box" @submit.prevent="submitMessage">
+          <textarea
+            ref="draftInput"
+            v-model="draft"
+            :disabled="!selectedWorkspace || connectionStatus !== 'online' || !selectedAgentReady"
+            rows="1"
+            :placeholder="
+              !selectedWorkspace
+                ? 'Select a workspace...'
+                : selectedAgentReady
+                  ? `Message ${selectedAgentName}...`
+                  : 'Agent is not ready...'
+            "
+            @keydown.enter.exact.prevent="submitMessage"
+          ></textarea>
+          <button
+            class="send-button"
+            type="submit"
+            title="Send message"
+            :disabled="
+              !draft.trim() ||
+              !selectedWorkspace ||
+              connectionStatus !== 'online' ||
+              !selectedAgentReady
+            "
+          >
+            <Send :size="18" />
+          </button>
+        </form>
         <div v-if="selectedWorkspace" ref="toolManager" class="tool-manager">
           <button
             class="tool-manager-trigger"
@@ -492,34 +598,6 @@ function logLevelClass(log: RuntimeLog) {
             </section>
           </div>
         </div>
-        <form class="composer-box" @submit.prevent="submitMessage">
-          <textarea
-            v-model="draft"
-            :disabled="!selectedWorkspace || connectionStatus !== 'online' || !selectedAgentReady"
-            rows="1"
-            :placeholder="
-              !selectedWorkspace
-                ? 'Select a workspace...'
-                : selectedAgentReady
-                  ? `Message ${selectedAgentName}...`
-                  : 'Agent is not ready...'
-            "
-            @keydown.enter.exact.prevent="submitMessage"
-          ></textarea>
-          <button
-            class="send-button"
-            type="submit"
-            title="Send message"
-            :disabled="
-              !draft.trim() ||
-              !selectedWorkspace ||
-              connectionStatus !== 'online' ||
-              !selectedAgentReady
-            "
-          >
-            <Send :size="18" />
-          </button>
-        </form>
       </footer>
     </main>
 

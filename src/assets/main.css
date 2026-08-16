@@ -571,6 +571,7 @@ textarea:focus-visible {
   min-height: 0;
   flex-direction: column;
   background: var(--mg-bg-base);
+  position: relative;
 }
 
 .conversation-header {
@@ -615,9 +616,10 @@ textarea:focus-visible {
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 16px 32px;
+  /* Reserve room under the floating composer so the last message can scroll
+     above it while the scrollbar itself still reaches the viewport bottom. */
+  padding: 16px 32px calc(var(--mg-composer-height, 220px) + 28px);
   scrollbar-gutter: stable;
-  scroll-behavior: smooth;
 }
 
 .empty-state {
@@ -839,11 +841,144 @@ textarea:focus-visible {
   font-size: 16px;
   line-height: 28px;
   overflow-wrap: anywhere;
-  white-space: pre-wrap;
 }
 
 .message-row--assistant .message-content {
   margin-top: 2px;
+}
+
+/* Rendered markdown (assistant and user body text). */
+.message-content > :first-child {
+  margin-top: 0;
+}
+
+.message-content > :last-child {
+  margin-bottom: 0;
+}
+
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  margin: 18px 0 8px;
+  color: var(--mg-text-primary);
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.message-content h1 {
+  font-size: 20px;
+}
+
+.message-content h2 {
+  font-size: 18px;
+}
+
+.message-content h3 {
+  font-size: 17px;
+}
+
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  font-size: 16px;
+}
+
+.message-content p {
+  margin: 0 0 8px;
+}
+
+.message-content ul,
+.message-content ol {
+  margin: 0 0 8px;
+  padding-left: 22px;
+}
+
+.message-content li {
+  margin: 2px 0;
+}
+
+.message-content a {
+  color: var(--mg-brand);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.message-content a:hover {
+  color: var(--mg-brand-hover);
+}
+
+.message-content strong {
+  font-weight: 650;
+}
+
+.message-content code {
+  padding: 1px 5px;
+  border: 1px solid var(--mg-border-l1);
+  border-radius: 6px;
+  background: var(--mg-bg-subtle);
+  font-family: var(--mg-font-mono);
+  font-size: 0.85em;
+}
+
+.message-content pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border: 1px solid var(--mg-border-l1);
+  border-radius: 8px;
+  background: var(--mg-bg-subtle);
+}
+
+.message-content pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  line-height: 20px;
+  white-space: pre;
+}
+
+.message-content blockquote {
+  margin: 8px 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--mg-border-strong);
+  color: var(--mg-text-secondary);
+}
+
+.message-content hr {
+  height: 1px;
+  margin: 16px 0;
+  border: 0;
+  background: var(--mg-border-l1);
+}
+
+.message-content table {
+  display: block;
+  max-width: 100%;
+  margin: 8px 0;
+  overflow-x: auto;
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+
+.message-content th,
+.message-content td {
+  padding: 6px 10px;
+  border: 1px solid var(--mg-border-l1);
+  text-align: left;
+}
+
+.message-content th {
+  background: var(--mg-bg-subtle);
+  font-weight: 650;
+}
+
+.message-content img {
+  max-width: 100%;
+  border-radius: 8px;
 }
 
 /* User bubble (MessageItem.userRow): right-aligned, 22px radius. */
@@ -855,9 +990,10 @@ textarea:focus-visible {
 }
 
 .message-row--user .message-content {
-  display: inline-block;
-  width: fit-content;
-  max-width: min(525px, 82%);
+  /* Short messages stay on one line; only the 525px cap wraps. */
+  display: block;
+  width: max-content;
+  max-width: 525px;
   padding: 10px 16px;
   border-radius: 22px;
   color: var(--mg-text-primary);
@@ -865,7 +1001,6 @@ textarea:focus-visible {
   font-size: 16px;
   line-height: 24px;
   overflow-wrap: anywhere;
-  white-space: pre-wrap;
 }
 
 .message-row--user .message-meta {
@@ -931,7 +1066,8 @@ textarea:focus-visible {
   white-space: pre-wrap;
 }
 
-/* Tool call rows = DSH ToolRow: one 24px line, not a card. */
+/* Tool call rows = DSH ToolRow: one 24px collapsed line with a
+   reasoning-style triangle; the full arguments live in the expanded body. */
 .tool-call-list {
   display: flex;
   flex-direction: column;
@@ -940,11 +1076,8 @@ textarea:focus-visible {
 }
 
 .tool-call-row {
-  display: flex;
-  align-items: center;
+  display: block;
   min-width: 0;
-  gap: 6px;
-  padding: 0;
   border: 0;
   border-radius: 6px;
   color: var(--mg-text-secondary);
@@ -953,7 +1086,37 @@ textarea:focus-visible {
   line-height: 24px;
 }
 
-.tool-call-row > svg {
+.tool-call-row summary {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  padding: 0;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tool-call-row summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-call-row summary::before {
+  content: '›';
+  display: inline-block;
+  flex: 0 0 auto;
+  margin-right: 2px;
+  color: var(--mg-text-quaternary);
+  font-size: 15px;
+  line-height: 24px;
+  transition: transform 140ms var(--mg-ease);
+}
+
+.tool-call-row[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.tool-call-row summary > svg {
   flex: none;
   color: var(--mg-brand);
 }
@@ -1001,37 +1164,93 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
+.tool-call-detail {
+  margin: 4px 0 0 24px;
+  padding: 8px 10px;
+  border: 1px solid var(--mg-border-l1);
+  border-radius: 8px;
+  background: var(--mg-bg-subtle);
+  color: var(--mg-text-secondary);
+  font-family: var(--mg-font-mono);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Tool response mirrors the request row grammar:
-   small wrench + Response badge, then the response text. */
+   small wrench + Response badge + truncated text, expandable like reasoning. */
 .message-row--tool {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
+}
+
+/* Triangle sits before the wrench, mirroring the call row order. */
+.message-row--tool::before {
+  content: '›';
+  display: inline-flex;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--mg-text-quaternary);
+  font-size: 15px;
+  line-height: 20px;
+  transition: transform 140ms var(--mg-ease);
+}
+
+.message-row--tool:has(.tool-response[open])::before {
+  transform: rotate(90deg);
 }
 
 .message-row--tool .message-avatar {
   display: grid;
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
-  border-radius: 6px;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  margin-top: 5px;
+  place-items: center;
+  border-radius: 0;
   color: var(--mg-success);
-  background: var(--mg-success-soft);
+  background: transparent;
 }
 
-/* Badge and response text share one row, like the request row. */
+.message-row--tool .message-avatar svg {
+  width: 14px;
+  height: 14px;
+}
+
 .message-row--tool .message-body {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
+  display: block;
+  flex: 1 1 auto;
   min-width: 0;
 }
+
+.tool-response {
+  min-width: 0;
+}
+
+.tool-response summary {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.tool-response summary::-webkit-details-marker {
+  display: none;
+}
+
+
 
 /* The DOM label becomes the distinguishing badge. Hide its long text and
    render the compact Response label, symmetric with the Call badge. */
 .message-row--tool .tool-response-label {
-  order: -1;
   display: inline-flex;
   width: fit-content;
   flex: 0 0 auto;
@@ -1053,18 +1272,36 @@ textarea:focus-visible {
   line-height: 18px;
 }
 
-.message-row--tool .message-meta {
-  display: none;
-}
-
-.message-row--tool .message-content {
-  margin: 0;
-  padding-left: 0;
+/* Collapsed response: one line, clipped with ellipsis. */
+.tool-response-summary {
   min-width: 0;
   flex: 1 1 auto;
+  overflow: hidden;
   color: var(--mg-text-secondary);
   font-size: 14px;
   line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-response-detail {
+  /* Align with the call detail: the response body starts after the triangle,
+     wrench and gaps, so pull the card back to the shared 24px inset. */
+  margin: 4px 0 0 -11px;
+  padding: 10px 12px;
+  border: 1px solid var(--mg-border-l1);
+  border-radius: 8px;
+  background: var(--mg-bg-subtle);
+  color: var(--mg-text-secondary);
+  font-family: var(--mg-font-mono);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-row--tool .message-meta {
+  display: none;
 }
 
 .message-row--system .message-content {
@@ -1106,6 +1343,20 @@ textarea:focus-visible {
   padding: 0 16px 8px;
 }
 
+/* Active chat: composer floats over the full-height transcript, leaving the
+   scrollbar track running all the way to the viewport bottom. The status row
+   stays transparent; only the trigger pill and input card carry surfaces. */
+.conversation-pane:not(:has(.empty-state)) .composer {
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  margin: 0 auto;
+  border-top: 0;
+  background: var(--mg-bg-base);
+}
+
 .composer-context {
   display: flex;
   align-items: center;
@@ -1126,7 +1377,7 @@ textarea:focus-visible {
 
 .tool-manager {
   position: relative;
-  margin-bottom: 6px;
+  margin-top: 6px;
 }
 
 /* Trigger reads as one of the quiet pills above the composer. */
@@ -1141,8 +1392,8 @@ textarea:focus-visible {
   border: 0;
   padding: 2px 8px 2px 6px;
   border-radius: 999px;
-  color: var(--mg-text-tertiary);
-  background: transparent;
+  color: var(--mg-text-secondary);
+  background: var(--mg-bg-subtle);
   cursor: pointer;
   font-size: 12px;
   line-height: 18px;
@@ -1154,7 +1405,7 @@ textarea:focus-visible {
 .tool-manager-trigger:hover,
 .tool-manager-trigger[aria-expanded='true'] {
   color: var(--mg-text-primary);
-  background: var(--mg-bg-hover);
+  background: var(--mg-bg-active);
 }
 
 .tool-manager-chevron {
@@ -1172,10 +1423,10 @@ textarea:focus-visible {
   max-width: 180px;
   align-items: center;
   gap: 5px;
-  padding: 1px 8px;
-  border: 1px solid var(--mg-border-l1);
-  border-radius: 999px;
-  background: var(--mg-bg-elevated);
+  padding: 1px 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--mg-text-secondary);
   font-size: 11px;
   line-height: 16px;
@@ -1383,7 +1634,8 @@ textarea:focus-visible {
   max-height: 168px;
   flex: 0 0 auto;
   padding: 4px 12px 0 0;
-  resize: vertical;
+  resize: none;
+  overflow-y: auto;
   border: 0;
   outline: 0;
   color: var(--mg-text-primary);
@@ -1459,8 +1711,11 @@ textarea:focus-visible {
 .conversation-pane:has(.empty-state) .composer {
   position: absolute;
   top: calc(50% + 29px);
+  right: auto;
+  bottom: auto;
   left: 50%;
   z-index: 1;
+  margin: 0;
   transform: translate(-50%, -50%);
 }
 
@@ -1821,7 +2076,7 @@ textarea:focus-visible {
   }
 
   .message-row--user .message-content {
-    max-width: min(520px, 86%);
+    max-width: min(520px, 86vw);
   }
 
   .composer {
