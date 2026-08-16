@@ -10,10 +10,14 @@ export interface WorkspaceInfo extends WorkspaceRef {
 }
 
 export type ResourceRef = string;
+export type AgentStatus = 'creating' | 'ready' | 'failed';
 
 export interface AgentState {
   workspace: WorkspaceRef;
   agent: string;
+  status: AgentStatus;
+  error: string | null;
+  default_resources: ResourceRef[];
   visible_resources: ResourceRef[];
   loading_skills: ResourceRef[];
 }
@@ -96,6 +100,15 @@ export type ClientMessage =
       message: {
         workspace: WorkspaceRef;
         agent: string | null;
+      };
+    }
+  | {
+      type: 'agent.visibility.inject' | 'agent.visibility.remove';
+      id: string;
+      message: {
+        workspace: WorkspaceRef;
+        agent: string | null;
+        resource_id: ResourceRef;
       };
     };
 

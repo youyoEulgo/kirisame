@@ -741,6 +741,17 @@ textarea:focus-visible {
   margin-top: 12px;
 }
 
+/* Assistant turns don't repeat the agent id after the content. */
+.message-row--assistant .message-meta strong {
+  display: none;
+}
+
+/* Only turns with an actual content block keep the trailing timestamp;
+   tool-call-only and reasoning-only turns stay clean. */
+.message-row--assistant:not(:has(.message-content)) .message-meta {
+  display: none;
+}
+
 .message-row--assistant .message-reasoning {
   order: 1;
 }
@@ -1113,33 +1124,150 @@ textarea:focus-visible {
   background: var(--mg-success);
 }
 
-.visible-skills {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 28px;
+.tool-manager {
+  position: relative;
   margin-bottom: 6px;
-  padding-left: 12px;
+}
+
+/* Trigger reads as one of the quiet pills above the composer. */
+.tool-manager-trigger {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 28px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  border: 0;
+  padding: 2px 8px 2px 6px;
+  border-radius: 999px;
+  color: var(--mg-text-tertiary);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 18px;
+  transition:
+    color 120ms var(--mg-ease),
+    background-color 120ms var(--mg-ease);
+}
+
+.tool-manager-trigger:hover,
+.tool-manager-trigger[aria-expanded='true'] {
+  color: var(--mg-text-primary);
+  background: var(--mg-bg-hover);
+}
+
+.tool-manager-chevron {
+  flex: 0 0 auto;
+  transition: transform 140ms var(--mg-ease);
+}
+
+.tool-manager-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.active-tool {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 180px;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border: 1px solid var(--mg-border-l1);
+  border-radius: 999px;
+  background: var(--mg-bg-elevated);
+  color: var(--mg-text-secondary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.active-tool-dot,
+.resource-state-dot {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+  border-radius: 50%;
+  background: var(--mg-text-quaternary);
+}
+
+.active-tool-dot,
+.resource-state-dot.is-active {
+  background: var(--mg-success);
+}
+
+.tool-manager-empty {
+  color: var(--mg-text-quaternary);
+}
+
+/* Expanded panel is a floating menu anchored to the trigger; opening it
+   does not push the composer around. */
+.tool-manager-panel {
+  position: absolute;
+  z-index: 40;
+  right: 0;
+  bottom: calc(100% + 8px);
+  left: 0;
+  display: grid;
+  max-height: min(420px, 58vh);
+  overflow-y: auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--mg-border);
+  border-radius: 14px;
+  background: var(--mg-bg-elevated);
+  box-shadow: var(--mg-shadow-dialog);
+  animation: mg-tool-panel-in 140ms var(--mg-ease);
+}
+
+@keyframes mg-tool-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+}
+
+.tool-resource-group {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--mg-border-l1);
+  border-radius: 10px;
+  background: var(--mg-bg-subtle);
+}
+
+.tool-resource-heading {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
+  gap: 6px;
+  color: var(--mg-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.tool-resource-heading > span:first-child {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-resource-heading > span:nth-child(2) {
   color: var(--mg-text-tertiary);
   font-size: 11px;
+  font-weight: 500;
 }
 
-.visible-skills-label {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
-  color: var(--mg-text-secondary);
-}
-
-.skill-clear-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: auto;
+.tool-group-action {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  place-items: center;
   border: 0;
-  border-radius: 999px;
-  padding: 3px 8px;
+  border-radius: 6px;
   color: var(--mg-text-tertiary);
   background: transparent;
   cursor: pointer;
@@ -1148,43 +1276,50 @@ textarea:focus-visible {
     background-color 120ms var(--mg-ease);
 }
 
-.skill-clear-button:hover {
+.tool-group-action:hover {
   color: var(--mg-error);
   background: var(--mg-error-soft);
 }
 
-.visible-skills-list {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  gap: 6px;
+.tool-resource-list {
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
 }
 
-.visible-skill-row {
-  display: inline-flex;
+.tool-resource-row {
+  display: grid;
+  min-width: 0;
+  min-height: 28px;
+  grid-template-columns: 6px minmax(0, 1fr) auto auto;
   align-items: center;
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--mg-border-l1);
-  border-radius: 999px;
-  background: var(--mg-bg-elevated);
+  gap: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  transition: background-color 120ms var(--mg-ease);
 }
 
-.visible-skills-list code {
-  padding: 3px 9px;
+.tool-resource-row:hover {
+  background: var(--mg-bg-hover);
+}
+
+.tool-resource-row code {
+  overflow: hidden;
   color: var(--mg-text-secondary);
   font-family: var(--mg-font-mono);
-  font-size: 10px;
+  font-size: 11px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.skill-toggle-button {
+.tool-row-action {
   display: inline-grid;
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
+  width: 22px;
+  height: 22px;
   place-items: center;
   border: 0;
-  border-left: 1px solid var(--mg-border-l1);
+  border-radius: 6px;
   color: var(--mg-text-tertiary);
   background: transparent;
   cursor: pointer;
@@ -1193,18 +1328,27 @@ textarea:focus-visible {
     background-color 120ms var(--mg-ease);
 }
 
-.skill-toggle-button:hover:not(:disabled) {
+.tool-row-action:hover:not(:disabled, .is-readonly) {
   color: var(--mg-brand);
   background: var(--mg-brand-soft);
 }
 
-.skill-toggle-button:disabled {
+.tool-row-action:disabled {
   cursor: not-allowed;
-  opacity: 0.45;
+  opacity: 0.4;
 }
 
-.visible-skills-empty {
+.tool-row-action.is-readonly {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.tool-resource-empty {
+  display: block;
+  margin-top: 4px;
   color: var(--mg-text-quaternary);
+  font-size: 11px;
+  line-height: 20px;
 }
 
 /* The card itself: textarea on top, send control bottom-right. */
@@ -1294,7 +1438,7 @@ textarea:focus-visible {
 .conversation-pane:has(.empty-state) .empty-state {
   position: absolute;
   left: 50%;
-  top: calc(50% - 95px);
+  top: calc(50% - 135px);
   width: min(440px, calc(100% - 48px));
   min-height: 0;
   margin: 0;
@@ -1685,8 +1829,9 @@ textarea:focus-visible {
     padding: 0 12px 8px;
   }
 
-  .visible-skills {
-    align-items: flex-start;
+  .tool-manager-panel {
+    grid-template-columns: 1fr;
+    max-height: 52vh;
   }
 
   .field-grid {

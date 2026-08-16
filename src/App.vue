@@ -6,11 +6,15 @@ import {
   Bot,
   Check,
   ChevronDown,
+  ChevronRight,
   CircleMinus,
   CirclePlus,
   CloudOff,
   Command,
   FolderKanban,
+  Eye,
+  EyeOff,
+  LockKeyhole,
   Menu,
   MessageSquare,
   PanelRight,
@@ -27,6 +31,7 @@ import {
 
 import {
   useWorkbenchStore,
+  resourceName,
   workspaceKey,
   type ConversationEntry,
   type RuntimeLog,
@@ -41,7 +46,9 @@ const {
   selectedWorkspace,
   selectedAgent,
   selectedAgentName,
-  visibleSkills,
+  selectedAgentState,
+  selectedAgentReady,
+  resourceVisibility,
   loadingSkills,
   visibleMessages,
   logs,
@@ -49,8 +56,10 @@ const {
 
 const draft = ref('');
 const messageList = ref<HTMLElement | null>(null);
+const toolManager = ref<HTMLElement | null>(null);
 const sidebarOpen = ref(false);
 const activityOpen = ref(true);
+const toolsOpen = ref(false);
 const settingsOpen = ref(false);
 const logFilter = ref<'all' | 'errors'>('all');
 const endpointDraft = ref(endpoint.value);
@@ -77,11 +86,31 @@ const connectionLabel = computed(() => {
 
 const loadingSkillSet = computed(() => new Set(loadingSkills.value));
 
+const resourceGroups = computed(() => {
+  const groups = [
+    { type: 'skill', label: 'Skills', resources: [] as typeof resourceVisibility.value },
+    { type: 'workflow', label: 'Workflows', resources: [] as typeof resourceVisibility.value },
+    { type: 'tool', label: 'Tools', resources: [] as typeof resourceVisibility.value },
+    { type: 'shell', label: 'Shells', resources: [] as typeof resourceVisibility.value },
+  ];
+  for (const resource of resourceVisibility.value) {
+    groups.find((group) => resource.resource.startsWith(`${group.type}:`))?.resources.push(resource);
+  }
+  return groups;
+});
+
+const activeToolResources = computed(() => [
+  ...loadingSkills.value,
+  ...resourceVisibility.value
+    .filter((entry) => entry.visible && entry.resource.startsWith('workflow:'))
+    .map((entry) => entry.resource),
+]);
+
 const currentChannelLabel = computed(() => {
   const workspace = selectedWorkspace.value;
   if (!workspace) return 'Select a workspace';
-  if (selectedAgent.value) return selectedAgent.value;
-  return workspace.manager ? `${workspace.manager} · manager route` : 'Manager route';
+  if (selectedAgent.value) return resourceName(selectedAgent.value);
+  return workspace.manager ? `${resourceName(workspace.manager)} · manager route` : 'Manager route';
 });
 
 watch(
@@ -92,14 +121,26 @@ watch(
   () => nextTick(scrollMessages),
 );
 
+function closeToolsOnOutsideClick(event: MouseEvent) {
+  if (!toolsOpen.value) return;
+  const target = event.target;
+  if (target instanceof Node && toolManager.value && !toolManager.value.contains(target)) {
+    toolsOpen.value = false;
+  }
+}
+
 onMounted(() => {
   if (!selectedWorkspace.value && workspaces.value[0]) {
     store.selectWorkspace(workspaceKey(workspaces.value[0]));
   }
   store.connect();
+  document.addEventListener('click', closeToolsOnOutsideClick);
 });
 
-onBeforeUnmount(() => store.disconnect());
+onBeforeUnmount(() => {
+  document.removeEventListener('click', closeToolsOnOutsideClick);
+  store.disconnect();
+});
 
 function submitMessage() {
   const text = draft.value.trim();
@@ -111,6 +152,10 @@ function submitMessage() {
 
 function toggleSkill(skill: string) {
   store.setSkillLoading(skill, !loadingSkillSet.value.has(skill));
+}
+
+function toggleResourceVisibility(resource: string, visible: boolean) {
+  store.setResourceVisibility(resource, visible);
 }
 
 function selectWorkspace(key: string) {
@@ -159,7 +204,7 @@ function formatLogTime(timestamp: number) {
 
 function roleLabel(message: ConversationEntry) {
   if (message.role === 'user') return 'You';
-  if (message.role === 'assistant') return message.agent;
+  if (message.role === 'assistant') return resourceName(message.agent);
   if (message.role === 'tool') return 'Tool response';
   return 'System';
 }
@@ -170,12 +215,6 @@ function toolArguments(argumentsText: string) {
   } catch {
     return argumentsText;
   }
-}
-
-function resourceLabel(resource: string) {
-  const separator = resource.indexOf(':');
-  const identity = separator >= 0 ? resource.slice(separator + 1) : resource;
-  return identity.endsWith(':latest') ? identity.slice(0, -':latest'.length) : identity;
 }
 
 function logLevelClass(log: RuntimeLog) {
@@ -259,7 +298,7 @@ function logLevelClass(log: RuntimeLog) {
               <Zap :size="15" />
             </span>
             <span class="member-item__copy">
-              <strong>{{ selectedWorkspace.manager || 'Manager' }}</strong>
+              <strong>{{ resourceName(selectedWorkspace.manager) || 'Manager' }}</strong>
               <small>default route</small>
             </span>
             <Check v-if="selectedAgent === null" :size="15" />
@@ -274,7 +313,7 @@ function logLevelClass(log: RuntimeLog) {
               <Bot :size="15" />
             </span>
             <span class="member-item__copy">
-              <strong>{{ agent }}</strong>
+              <strong>{{ resourceName(agent) }}</strong>
               <small>{{ agent === selectedWorkspace.manager ? 'manager' : 'agent' }}</small>
             </span>
             <Check v-if="selectedAgent === agent" :size="15" />
@@ -304,7 +343,7 @@ function logLevelClass(log: RuntimeLog) {
             <div class="channel-subtitle">
               <span v-if="selectedWorkspace">{{ selectedWorkspace.name }}</span>
               <span v-if="selectedWorkspace">·</span>
-              <span>{{ connectionLabel.toLowerCase() }}</span>
+              <span>{{ selectedAgentState?.status || connectionLabel.toLowerCase() }}</span>
             </div>
           </div>
         </div>
@@ -332,7 +371,11 @@ function logLevelClass(log: RuntimeLog) {
             <MessageSquare :size="22" />
           </div>
           <strong>{{ selectedAgentName }}</strong>
-          <span>Conversation is ready.</span>
+          <span v-if="selectedAgentState?.status === 'failed'">
+            {{ selectedAgentState.error || 'Agent initialization failed.' }}
+          </span>
+          <span v-else-if="selectedAgentState?.status === 'creating'">Agent is starting.</span>
+          <span v-else>Conversation is ready.</span>
         </div>
 
         <article
@@ -380,46 +423,86 @@ function logLevelClass(log: RuntimeLog) {
           <span>Message {{ selectedAgentName }}</span>
           <span v-if="selectedWorkspace">in {{ selectedWorkspace.name }}</span>
         </div>
-        <div v-if="selectedWorkspace" class="visible-skills" aria-label="Visible skills">
-          <div class="visible-skills-label">
-            <Wrench :size="13" />
-            <span>Visible skills</span>
-            <button
-              v-if="loadingSkills.length"
-              class="skill-clear-button"
-              type="button"
-              title="Unload all skills"
-              @click="store.unloadAllSkills"
-            >
-              <Trash2 :size="13" />
-              <span>Unload all</span>
-            </button>
+        <div v-if="selectedWorkspace" ref="toolManager" class="tool-manager">
+          <button
+            class="tool-manager-trigger"
+            type="button"
+            :aria-expanded="toolsOpen"
+            aria-controls="tool-manager-panel"
+            title="Manage agent tools"
+            @click="toolsOpen = !toolsOpen"
+          >
+            <ChevronRight :class="['tool-manager-chevron', { 'is-open': toolsOpen }]" :size="13" />
+            <span v-for="resource in activeToolResources" :key="resource" class="active-tool">
+              <span class="active-tool-dot"></span>
+              <span>{{ resourceName(resource) }}</span>
+            </span>
+            <span v-if="!activeToolResources.length" class="tool-manager-empty">Tools</span>
+          </button>
+
+          <div v-if="toolsOpen" id="tool-manager-panel" class="tool-manager-panel">
+            <section v-for="group in resourceGroups" :key="group.type" class="tool-resource-group">
+              <div class="tool-resource-heading">
+                <span>{{ group.label }}</span>
+                <span>{{ group.resources.length }}</span>
+                <button
+                  v-if="group.type === 'skill' && loadingSkills.length"
+                  class="tool-group-action"
+                  type="button"
+                  title="Unload all skills"
+                  @click="store.unloadAllSkills"
+                >
+                  <Trash2 :size="13" />
+                </button>
+              </div>
+              <div v-if="group.resources.length" class="tool-resource-list">
+                <div v-for="entry in group.resources" :key="entry.resource" class="tool-resource-row">
+                  <span :class="['resource-state-dot', { 'is-active': entry.visible }]" />
+                  <code :title="entry.resource">{{ resourceName(entry.resource) }}</code>
+                  <button
+                    v-if="group.type === 'skill' && entry.visible"
+                    class="tool-row-action"
+                    type="button"
+                    :title="loadingSkillSet.has(entry.resource) ? 'Unload skill' : 'Load skill'"
+                    :aria-label="loadingSkillSet.has(entry.resource) ? 'Unload skill' : 'Load skill'"
+                    :disabled="connectionStatus !== 'online' || !selectedAgentReady"
+                    @click="toggleSkill(entry.resource)"
+                  >
+                    <CircleMinus v-if="loadingSkillSet.has(entry.resource)" :size="14" />
+                    <CirclePlus v-else :size="14" />
+                  </button>
+                  <button
+                    v-if="entry.default"
+                    class="tool-row-action"
+                    type="button"
+                    :title="entry.visible ? 'Remove visibility' : 'Inject visibility'"
+                    :aria-label="entry.visible ? 'Remove visibility' : 'Inject visibility'"
+                    :disabled="connectionStatus !== 'online' || !selectedAgentReady"
+                    @click="toggleResourceVisibility(entry.resource, !entry.visible)"
+                  >
+                    <Eye v-if="entry.visible" :size="14" />
+                    <EyeOff v-else :size="14" />
+                  </button>
+                  <span v-else class="tool-row-action is-readonly" title="Runtime-managed resource">
+                    <LockKeyhole :size="14" />
+                  </span>
+                </div>
+              </div>
+              <span v-else class="tool-resource-empty">None</span>
+            </section>
           </div>
-          <div v-if="visibleSkills.length" class="visible-skills-list">
-            <div v-for="skill in visibleSkills" :key="skill" class="visible-skill-row">
-              <code>{{ resourceLabel(skill) }}</code>
-              <button
-                class="skill-toggle-button"
-                type="button"
-                :title="loadingSkillSet.has(skill) ? 'Unload skill' : 'Load skill'"
-                :aria-label="loadingSkillSet.has(skill) ? 'Unload skill' : 'Load skill'"
-                :disabled="connectionStatus !== 'online'"
-                @click="toggleSkill(skill)"
-              >
-                <CircleMinus v-if="loadingSkillSet.has(skill)" :size="14" />
-                <CirclePlus v-else :size="14" />
-              </button>
-            </div>
-          </div>
-          <span v-else class="visible-skills-empty">No visible skills</span>
         </div>
         <form class="composer-box" @submit.prevent="submitMessage">
           <textarea
             v-model="draft"
-            :disabled="!selectedWorkspace || connectionStatus !== 'online'"
+            :disabled="!selectedWorkspace || connectionStatus !== 'online' || !selectedAgentReady"
             rows="1"
             :placeholder="
-              selectedWorkspace ? `Message ${selectedAgentName}...` : 'Select a workspace...'
+              !selectedWorkspace
+                ? 'Select a workspace...'
+                : selectedAgentReady
+                  ? `Message ${selectedAgentName}...`
+                  : 'Agent is not ready...'
             "
             @keydown.enter.exact.prevent="submitMessage"
           ></textarea>
@@ -427,7 +510,12 @@ function logLevelClass(log: RuntimeLog) {
             class="send-button"
             type="submit"
             title="Send message"
-            :disabled="!draft.trim() || !selectedWorkspace || connectionStatus !== 'online'"
+            :disabled="
+              !draft.trim() ||
+              !selectedWorkspace ||
+              connectionStatus !== 'online' ||
+              !selectedAgentReady
+            "
           >
             <Send :size="18" />
           </button>

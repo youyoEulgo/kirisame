@@ -77,8 +77,36 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   );
 
   const selectedAgentName = computed(() => {
-    if (selectedAgent.value) return selectedAgent.value;
-    return selectedWorkspace.value?.manager || 'Manager';
+    if (selectedAgent.value) return resourceName(selectedAgent.value);
+    return selectedWorkspace.value?.manager
+      ? resourceName(selectedWorkspace.value.manager)
+      : 'Manager';
+  });
+
+  const selectedAgentState = computed(() => {
+    const workspace = selectedWorkspace.value;
+    if (!workspace) return null;
+    const agent = selectedAgent.value || workspace.manager;
+    return (
+      agentStates.value.find(
+        (state) =>
+          workspaceKey(state.workspace) === workspaceKey(workspace) && state.agent === agent,
+      ) ?? null
+    );
+  });
+
+  const selectedAgentReady = computed(() => selectedAgentState.value?.status === 'ready');
+
+  const resourceVisibility = computed(() => {
+    const state = selectedAgentState.value;
+    if (!state) return [];
+    const defaults = new Set(state.default_resources);
+    const visible = new Set(state.visible_resources);
+    return [...new Set([...defaults, ...visible])].sort().map((resource) => ({
+      resource,
+      default: defaults.has(resource),
+      visible: visible.has(resource),
+    }));
   });
 
   const visibleSkills = computed<ResourceRef[]>(() => {
@@ -199,6 +227,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     const workspace = selectedWorkspace.value;
     const text = content.trim();
     if (!workspace || !text) return null;
+    if (!selectedAgentReady.value) {
+      connectionError.value = selectedAgentState.value?.error || 'The selected agent is not ready';
+      return null;
+    }
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       connectionError.value = 'Connect to the daemon before sending a message';
       return null;
@@ -226,7 +258,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   function setSkillLoading(resourceId: ResourceRef, loaded: boolean): string | null {
     const workspace = selectedWorkspace.value;
-    if (!workspace || !socket || socket.readyState !== WebSocket.OPEN) return null;
+    if (
+      !workspace ||
+      !selectedAgentReady.value ||
+      !socket ||
+      socket.readyState !== WebSocket.OPEN
+    )
+      return null;
     const id = crypto.randomUUID();
     const request: ClientMessage = {
       type: loaded ? 'agent.skill.load' : 'agent.skill.unload',
@@ -243,12 +281,43 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   function unloadAllSkills(): string | null {
     const workspace = selectedWorkspace.value;
-    if (!workspace || !socket || socket.readyState !== WebSocket.OPEN) return null;
+    if (
+      !workspace ||
+      !selectedAgentReady.value ||
+      !socket ||
+      socket.readyState !== WebSocket.OPEN
+    )
+      return null;
     const id = crypto.randomUUID();
     const request: ClientMessage = {
       type: 'agent.skill.unload_all',
       id,
       message: { workspace: workspaceReference(workspace), agent: selectedAgent.value },
+    };
+    socket.send(JSON.stringify(request));
+    return id;
+  }
+
+  function setResourceVisibility(resourceId: ResourceRef, visible: boolean): string | null {
+    const workspace = selectedWorkspace.value;
+    const state = selectedAgentState.value;
+    if (
+      !workspace ||
+      !selectedAgentReady.value ||
+      !state?.default_resources.includes(resourceId) ||
+      !socket ||
+      socket.readyState !== WebSocket.OPEN
+    )
+      return null;
+    const id = crypto.randomUUID();
+    const request: ClientMessage = {
+      type: visible ? 'agent.visibility.inject' : 'agent.visibility.remove',
+      id,
+      message: {
+        workspace: workspaceReference(workspace),
+        agent: selectedAgent.value,
+        resource_id: resourceId,
+      },
     };
     socket.send(JSON.stringify(request));
     return id;
@@ -497,6 +566,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     agentStates.value = snapshot.map((state) => ({
       workspace: { ...state.workspace },
       agent: state.agent,
+      status: state.status,
+      error: state.error ?? null,
+      default_resources: [...(state.default_resources ?? [])],
       visible_resources: [...state.visible_resources],
       loading_skills: [...(state.loading_skills ?? [])],
     }));
@@ -532,6 +604,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectedWorkspace,
     selectedAgent,
     selectedAgentName,
+    selectedAgentState,
+    selectedAgentReady,
+    resourceVisibility,
     visibleSkills,
     loadingSkills,
     visibleMessages,
@@ -543,12 +618,19 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     sendMessage,
     setSkillLoading,
     unloadAllSkills,
+    setResourceVisibility,
     clearLogs,
   };
 });
 
 export function workspaceKey(workspace: WorkspaceRef): string {
   return `${workspace.project_root}\u0000${workspace.name}`;
+}
+
+export function resourceName(resource: string): string {
+  const identity = resource.includes(':') ? resource.slice(resource.indexOf(':') + 1) : resource;
+  const withoutTag = identity.includes(':') ? identity.slice(0, identity.lastIndexOf(':')) : identity;
+  return withoutTag.includes('/') ? withoutTag.slice(withoutTag.lastIndexOf('/') + 1) : withoutTag;
 }
 
 function workspaceReference(workspace: WorkspaceInfo): WorkspaceRef {
