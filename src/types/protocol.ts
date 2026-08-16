@@ -16,6 +16,7 @@ export interface AgentState {
   workspace: WorkspaceRef;
   agent: string;
   status: AgentStatus;
+  working: boolean;
   error: string | null;
   default_resources: ResourceRef[];
   visible_resources: ResourceRef[];
@@ -83,6 +84,14 @@ export type ClientMessage =
         message: {
           content: string;
         };
+      };
+    }
+  | {
+      type: 'agent.turn.abort';
+      id: string;
+      message: {
+        workspace: WorkspaceRef;
+        agent: string | null;
       };
     }
   | {

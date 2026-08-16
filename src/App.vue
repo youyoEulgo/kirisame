@@ -21,6 +21,7 @@ import {
   MessageSquare,
   PanelRight,
   Send,
+  Square,
   Settings2,
   Trash2,
   UserRound,
@@ -50,6 +51,7 @@ const {
   selectedAgentName,
   selectedAgentState,
   selectedAgentReady,
+  selectedAgentWorking,
   resourceVisibility,
   loadingSkills,
   visibleMessages,
@@ -510,12 +512,27 @@ function logLevelClass(log: RuntimeLog) {
               !selectedWorkspace
                 ? 'Select a workspace...'
                 : selectedAgentReady
-                  ? `Message ${selectedAgentName}...`
+                  ? selectedAgentWorking
+                    ? `${selectedAgentName} is working...`
+                    : `Message ${selectedAgentName}...`
                   : 'Agent is not ready...'
             "
             @keydown.enter.exact.prevent="submitMessage"
           ></textarea>
           <button
+            v-if="selectedAgentWorking"
+            class="send-button send-button--stop"
+            type="button"
+            title="Stop current turn"
+            :disabled="
+              !selectedWorkspace || connectionStatus !== 'online' || !selectedAgentReady
+            "
+            @click="store.abortTurn()"
+          >
+            <Square :size="14" :stroke-width="0" fill="currentColor" />
+          </button>
+          <button
+            v-else
             class="send-button"
             type="submit"
             title="Send message"

@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { defineStore } from 'pinia';
 
 import {
@@ -61,7 +61,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const selectedAgent = ref<string | null>(null);
   const messages = ref<ConversationEntry[]>([]);
   const currentMessages = ref<Map<string, CurrentMessage>>(new Map());
-  const pendingRoutes = new Map<string, PendingMessageRoute>();
+  const pendingRoutes = reactive(new Map<string, PendingMessageRoute>());
   const logs = ref<RuntimeLog[]>([]);
 
   let socket: WebSocket | null = null;
@@ -96,6 +96,16 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   });
 
   const selectedAgentReady = computed(() => selectedAgentState.value?.status === 'ready');
+  const selectedAgentWorking = computed(() => {
+    if (selectedAgentState.value?.working === true) return true;
+    const workspace = selectedWorkspace.value;
+    if (!workspace) return false;
+    const key = workspaceKey(workspace);
+    const agent = selectedAgent.value || workspace.manager;
+    return [...pendingRoutes.values()].some(
+      (route) => route.workspaceKey === key && route.agent === agent,
+    );
+  });
 
   const resourceVisibility = computed(() => {
     const state = selectedAgentState.value;
@@ -231,6 +241,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       connectionError.value = selectedAgentState.value?.error || 'The selected agent is not ready';
       return null;
     }
+    if (selectedAgentWorking.value) return null;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       connectionError.value = 'Connect to the daemon before sending a message';
       return null;
@@ -252,6 +263,29 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       workspaceKey: workspaceKey(workspace),
       agent: selectedAgent.value || workspace.manager,
     });
+    socket.send(JSON.stringify(request));
+    return id;
+  }
+
+  function abortTurn(): string | null {
+    const workspace = selectedWorkspace.value;
+    if (
+      !workspace ||
+      !selectedAgentReady.value ||
+      !selectedAgentWorking.value ||
+      !socket ||
+      socket.readyState !== WebSocket.OPEN
+    )
+      return null;
+    const id = crypto.randomUUID();
+    const request: ClientMessage = {
+      type: 'agent.turn.abort',
+      id,
+      message: {
+        workspace: workspaceReference(workspace),
+        agent: selectedAgent.value,
+      },
+    };
     socket.send(JSON.stringify(request));
     return id;
   }
@@ -388,7 +422,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   function receiveMessageDelta(event: { id: string; agent: string; content: string }) {
     const route = resolveMessageRoute(event.id, event.agent);
-    if (!route) return;
+    if (!route || !routeIsWorking(route)) return;
     const existing = currentMessages.value.get(event.id);
     if (existing?.completed) return;
     if (existing?.backendAgentId && existing.backendAgentId !== event.agent) return;
@@ -414,7 +448,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   function receiveReasoningDelta(event: { id: string; agent: string; content: string }) {
     const route = resolveMessageRoute(event.id, event.agent);
-    if (!route) return;
+    if (!route || !routeIsWorking(route)) return;
     const existing = currentMessages.value.get(event.id);
     if (existing?.completed) return;
     if (existing?.backendAgentId && existing.backendAgentId !== event.agent) return;
@@ -475,6 +509,15 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   function reconcileCurrentMessages() {
     for (const [id, current] of currentMessages.value) {
+      const state = agentStates.value.find(
+        (candidate) =>
+          workspaceKey(candidate.workspace) === current.workspaceKey &&
+          candidate.agent === current.agent,
+      );
+      if (!current.completed && state?.status === 'ready' && !state.working) {
+        removeCurrentMessage(id);
+        continue;
+      }
       if (!current.completed) continue;
       const persisted = messages.value.some(
         (message) =>
@@ -488,6 +531,14 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       );
       if (persisted) removeCurrentMessage(id);
     }
+    for (const [id, route] of pendingRoutes) {
+      if (currentMessages.value.has(id)) continue;
+      const state = agentStates.value.find(
+        (candidate) =>
+          workspaceKey(candidate.workspace) === route.workspaceKey && candidate.agent === route.agent,
+      );
+      if (state?.status === 'ready' && !state.working) pendingRoutes.delete(id);
+    }
   }
 
   function replaceCurrentMessage(id: string, message: CurrentMessage) {
@@ -500,6 +551,16 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     return (
       pendingRoutes.get(id) ??
       messages.value.find((message) => message.id === id && message.agent === agent)
+    );
+  }
+
+  function routeIsWorking(route: PendingMessageRoute): boolean {
+    return agentStates.value.some(
+      (state) =>
+        workspaceKey(state.workspace) === route.workspaceKey &&
+        state.agent === route.agent &&
+        state.status === 'ready' &&
+        state.working,
     );
   }
 
@@ -567,6 +628,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       workspace: { ...state.workspace },
       agent: state.agent,
       status: state.status,
+      working: state.working === true,
       error: state.error ?? null,
       default_resources: [...(state.default_resources ?? [])],
       visible_resources: [...state.visible_resources],
@@ -606,6 +668,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectedAgentName,
     selectedAgentState,
     selectedAgentReady,
+    selectedAgentWorking,
     resourceVisibility,
     visibleSkills,
     loadingSkills,
@@ -616,6 +679,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectWorkspace,
     selectAgent,
     sendMessage,
+    abortTurn,
     setSkillLoading,
     unloadAllSkills,
     setResourceVisibility,
