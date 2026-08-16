@@ -1183,7 +1183,8 @@ textarea:focus-visible {
 .message-row--tool {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  /* Match the request row prefix: triangle + 6px + wrench + 6px. */
+  gap: 6px;
 }
 
 /* Triangle sits before the wrench, mirroring the call row order. */
@@ -1254,7 +1255,7 @@ textarea:focus-visible {
   display: inline-flex;
   width: fit-content;
   flex: 0 0 auto;
-  margin: 0;
+  margin: 0 0 0 2px;
   padding: 1px 6px;
   border-radius: 6px;
   background: var(--mg-success-soft);
@@ -1287,7 +1288,7 @@ textarea:focus-visible {
 .tool-response-detail {
   /* Align with the call detail: the response body starts after the triangle,
      wrench and gaps, so pull the card back to the shared 24px inset. */
-  margin: 4px 0 0 -11px;
+  margin: 4px 0 0 -7px;
   padding: 10px 12px;
   border: 1px solid var(--mg-border-l1);
   border-radius: 8px;
