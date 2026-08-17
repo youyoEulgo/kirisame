@@ -633,6 +633,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       default_resources: [...(state.default_resources ?? [])],
       visible_resources: [...state.visible_resources],
       loading_skills: [...(state.loading_skills ?? [])],
+      total_input_tokens: state.total_input_tokens ?? 0,
+      total_output_tokens: state.total_output_tokens ?? 0,
+      total_cache_hit_tokens: state.total_cache_hit_tokens ?? 0,
+      cache_hit_rate: state.cache_hit_rate ?? 0,
     }));
   }
 

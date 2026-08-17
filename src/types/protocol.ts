@@ -21,6 +21,10 @@ export interface AgentState {
   default_resources: ResourceRef[];
   visible_resources: ResourceRef[];
   loading_skills: ResourceRef[];
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cache_hit_tokens: number;
+  cache_hit_rate: number;
 }
 
 export interface HistoryMessage {

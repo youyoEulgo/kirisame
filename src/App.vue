@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import DOMPurify from 'dompurify';
-import { marked } from 'marked';
 import {
   Activity,
   Bot,
@@ -39,6 +37,7 @@ import {
   type ConversationEntry,
   type RuntimeLog,
 } from '@/stores/workbench';
+import { renderMarkdown } from '@/lib/markdown';
 
 const store = useWorkbenchStore();
 const {
@@ -102,7 +101,9 @@ const resourceGroups = computed(() => {
     { type: 'shell', label: 'Shells', resources: [] as typeof resourceVisibility.value },
   ];
   for (const resource of resourceVisibility.value) {
-    groups.find((group) => resource.resource.startsWith(`${group.type}:`))?.resources.push(resource);
+    groups
+      .find((group) => resource.resource.startsWith(`${group.type}:`))
+      ?.resources.push(resource);
   }
   return groups;
 });
@@ -113,6 +114,41 @@ const activeToolResources = computed(() => [
     .filter((entry) => entry.visible && entry.resource.startsWith('workflow:'))
     .map((entry) => entry.resource),
 ]);
+
+const compactTokenNumber = new Intl.NumberFormat(undefined, {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+});
+
+const tokenUsageItems = computed(() => {
+  const state = selectedAgentState.value;
+  const input = state?.total_input_tokens ?? 0;
+  const output = state?.total_output_tokens ?? 0;
+  const cached = state?.total_cache_hit_tokens ?? 0;
+  const hitRate = state?.cache_hit_rate ?? 0;
+  return [
+    {
+      label: 'In',
+      value: compactTokenNumber.format(input),
+      title: `Input tokens: ${input.toLocaleString()}`,
+    },
+    {
+      label: 'Out',
+      value: compactTokenNumber.format(output),
+      title: `Output tokens: ${output.toLocaleString()}`,
+    },
+    {
+      label: 'Cached',
+      value: compactTokenNumber.format(cached),
+      title: `Cache-hit tokens: ${cached.toLocaleString()}`,
+    },
+    {
+      label: 'Hit',
+      value: `${(hitRate * 100).toFixed(1)}%`,
+      title: `Cache hit rate: ${(hitRate * 100).toFixed(2)}%`,
+    },
+  ];
+});
 
 const currentChannelLabel = computed(() => {
   const workspace = selectedWorkspace.value;
@@ -267,16 +303,6 @@ function roleLabel(message: ConversationEntry) {
   if (message.role === 'assistant') return resourceName(message.agent);
   if (message.role === 'tool') return 'Tool response';
   return 'System';
-}
-
-function renderMarkdown(content: string): string {
-  const rendered = marked.parse(content, {
-    gfm: true,
-    breaks: true,
-  }) as string;
-  // `marked` keeps the trailing newline as a text node after the last block,
-  // which creates a second, empty line inside the inline-block user bubble.
-  return DOMPurify.sanitize(rendered).trim();
 }
 
 function toolArguments(argumentsText: string) {
@@ -487,7 +513,9 @@ function logLevelClass(log: RuntimeLog) {
                   <span>{{ tool.tool_name }}</span>
                   <code v-if="tool.arguments">{{ toolArguments(tool.arguments) }}</code>
                 </summary>
-                <pre class="tool-call-detail">{{ tool.arguments ? toolArguments(tool.arguments) : '{}' }}</pre>
+                <pre class="tool-call-detail">{{
+                  tool.arguments ? toolArguments(tool.arguments) : '{}'
+                }}</pre>
               </details>
             </div>
           </div>
@@ -501,7 +529,6 @@ function logLevelClass(log: RuntimeLog) {
       </section>
 
       <footer ref="composerFooter" class="composer" @wheel="handleComposerWheel">
-
         <form class="composer-box" @submit.prevent="submitMessage">
           <textarea
             ref="draftInput"
@@ -524,9 +551,7 @@ function logLevelClass(log: RuntimeLog) {
             class="send-button send-button--stop"
             type="button"
             title="Stop current turn"
-            :disabled="
-              !selectedWorkspace || connectionStatus !== 'online' || !selectedAgentReady
-            "
+            :disabled="!selectedWorkspace || connectionStatus !== 'online' || !selectedAgentReady"
             @click="store.abortTurn()"
           >
             <Square :size="14" :stroke-width="0" fill="currentColor" />
@@ -563,6 +588,18 @@ function logLevelClass(log: RuntimeLog) {
             <span v-if="!activeToolResources.length" class="tool-manager-empty">Tools</span>
           </button>
 
+          <div class="token-usage" aria-label="Agent token usage">
+            <span
+              v-for="item in tokenUsageItems"
+              :key="item.label"
+              class="token-usage-item"
+              :title="item.title"
+            >
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </span>
+          </div>
+
           <div v-if="toolsOpen" id="tool-manager-panel" class="tool-manager-panel">
             <section v-for="group in resourceGroups" :key="group.type" class="tool-resource-group">
               <div class="tool-resource-heading">
@@ -579,7 +616,11 @@ function logLevelClass(log: RuntimeLog) {
                 </button>
               </div>
               <div v-if="group.resources.length" class="tool-resource-list">
-                <div v-for="entry in group.resources" :key="entry.resource" class="tool-resource-row">
+                <div
+                  v-for="entry in group.resources"
+                  :key="entry.resource"
+                  class="tool-resource-row"
+                >
                   <span :class="['resource-state-dot', { 'is-active': entry.visible }]" />
                   <code :title="entry.resource">{{ resourceName(entry.resource) }}</code>
                   <button
@@ -587,7 +628,9 @@ function logLevelClass(log: RuntimeLog) {
                     class="tool-row-action"
                     type="button"
                     :title="loadingSkillSet.has(entry.resource) ? 'Unload skill' : 'Load skill'"
-                    :aria-label="loadingSkillSet.has(entry.resource) ? 'Unload skill' : 'Load skill'"
+                    :aria-label="
+                      loadingSkillSet.has(entry.resource) ? 'Unload skill' : 'Load skill'
+                    "
                     :disabled="connectionStatus !== 'online' || !selectedAgentReady"
                     @click="toggleSkill(entry.resource)"
                   >
