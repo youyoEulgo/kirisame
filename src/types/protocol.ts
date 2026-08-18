@@ -20,11 +20,25 @@ export interface AgentState {
   error: string | null;
   default_resources: ResourceRef[];
   visible_resources: ResourceRef[];
-  loading_skills: ResourceRef[];
+  mcl: AgentMclState | null;
   total_input_tokens: number;
   total_output_tokens: number;
   total_cache_hit_tokens: number;
   cache_hit_rate: number;
+}
+
+export interface AgentMclState {
+  base: ResourceRef;
+  base_program_hash: string;
+  plan_hash: string;
+  plan_generation: number;
+  workflows: WorkflowMclState[];
+}
+
+export interface WorkflowMclState {
+  instance_id: string;
+  resource_id: ResourceRef;
+  program_hash: string;
 }
 
 export interface HistoryMessage {
@@ -53,7 +67,7 @@ export interface ToolCall {
 }
 
 export type AgentMessage =
-  | { User: { content: string; tool_calls: ToolCall[] } }
+  | { User: { content: string } }
   | { Assistant: { reasoning: string | null; content: string | null; tool_calls: ToolCall[] } }
   | { Tool: { resource_id: ResourceRef; tool_call_id: string; content: string } };
 
@@ -99,29 +113,30 @@ export type ClientMessage =
       };
     }
   | {
-      type: 'agent.skill.load' | 'agent.skill.unload';
-      id: string;
-      message: {
-        workspace: WorkspaceRef;
-        agent: string | null;
-        resource_id: ResourceRef;
-      };
-    }
-  | {
-      type: 'agent.skill.unload_all';
-      id: string;
-      message: {
-        workspace: WorkspaceRef;
-        agent: string | null;
-      };
-    }
-  | {
       type: 'agent.visibility.inject' | 'agent.visibility.remove';
       id: string;
       message: {
         workspace: WorkspaceRef;
         agent: string | null;
         resource_id: ResourceRef;
+      };
+    }
+  | {
+      type: 'agent.workflow.attach';
+      id: string;
+      message: {
+        workspace: WorkspaceRef;
+        agent: string | null;
+        resource_id: ResourceRef;
+      };
+    }
+  | {
+      type: 'agent.workflow.detach';
+      id: string;
+      message: {
+        workspace: WorkspaceRef;
+        agent: string | null;
+        instance_id: string;
       };
     };
 

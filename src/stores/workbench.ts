@@ -119,32 +119,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     }));
   });
 
-  const visibleSkills = computed<ResourceRef[]>(() => {
-    const workspace = selectedWorkspace.value;
-    if (!workspace) return [];
-    const agent = selectedAgent.value || workspace.manager;
-    return (
-      agentStates.value
-        .find(
-          (state) =>
-            workspaceKey(state.workspace) === workspaceKey(workspace) && state.agent === agent,
-        )
-        ?.visible_resources.filter((resource) => resource.startsWith('skill:')) ?? []
-    );
-  });
-
-  const loadingSkills = computed<ResourceRef[]>(() => {
-    const workspace = selectedWorkspace.value;
-    if (!workspace) return [];
-    const agent = selectedAgent.value || workspace.manager;
-    return (
-      agentStates.value.find(
-        (state) =>
-          workspaceKey(state.workspace) === workspaceKey(workspace) && state.agent === agent,
-      )?.loading_skills ?? []
-    );
-  });
-
   const visibleMessages = computed(() => {
     const workspace = selectedWorkspace.value;
     if (!workspace) return [];
@@ -285,48 +259,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         workspace: workspaceReference(workspace),
         agent: selectedAgent.value,
       },
-    };
-    socket.send(JSON.stringify(request));
-    return id;
-  }
-
-  function setSkillLoading(resourceId: ResourceRef, loaded: boolean): string | null {
-    const workspace = selectedWorkspace.value;
-    if (
-      !workspace ||
-      !selectedAgentReady.value ||
-      !socket ||
-      socket.readyState !== WebSocket.OPEN
-    )
-      return null;
-    const id = crypto.randomUUID();
-    const request: ClientMessage = {
-      type: loaded ? 'agent.skill.load' : 'agent.skill.unload',
-      id,
-      message: {
-        workspace: workspaceReference(workspace),
-        agent: selectedAgent.value,
-        resource_id: resourceId,
-      },
-    };
-    socket.send(JSON.stringify(request));
-    return id;
-  }
-
-  function unloadAllSkills(): string | null {
-    const workspace = selectedWorkspace.value;
-    if (
-      !workspace ||
-      !selectedAgentReady.value ||
-      !socket ||
-      socket.readyState !== WebSocket.OPEN
-    )
-      return null;
-    const id = crypto.randomUUID();
-    const request: ClientMessage = {
-      type: 'agent.skill.unload_all',
-      id,
-      message: { workspace: workspaceReference(workspace), agent: selectedAgent.value },
     };
     socket.send(JSON.stringify(request));
     return id;
@@ -632,7 +564,12 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       error: state.error ?? null,
       default_resources: [...(state.default_resources ?? [])],
       visible_resources: [...state.visible_resources],
-      loading_skills: [...(state.loading_skills ?? [])],
+      mcl: state.mcl
+        ? {
+            ...state.mcl,
+            workflows: state.mcl.workflows.map((workflow) => ({ ...workflow })),
+          }
+        : null,
       total_input_tokens: state.total_input_tokens ?? 0,
       total_output_tokens: state.total_output_tokens ?? 0,
       total_cache_hit_tokens: state.total_cache_hit_tokens ?? 0,
@@ -674,8 +611,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectedAgentReady,
     selectedAgentWorking,
     resourceVisibility,
-    visibleSkills,
-    loadingSkills,
     visibleMessages,
     logs,
     connect,
@@ -684,8 +619,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectAgent,
     sendMessage,
     abortTurn,
-    setSkillLoading,
-    unloadAllSkills,
     setResourceVisibility,
     clearLogs,
   };
@@ -716,7 +649,7 @@ function decodeMessage(message: AgentMessage): {
       role: 'user',
       reasoning: '',
       content: message.User.content,
-      toolCalls: message.User.tool_calls,
+      toolCalls: [],
     };
   }
   if ('Assistant' in message) {

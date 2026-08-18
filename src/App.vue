@@ -7,8 +7,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  CircleMinus,
-  CirclePlus,
   CloudOff,
   Command,
   FolderKanban,
@@ -21,7 +19,6 @@ import {
   Send,
   Square,
   Settings2,
-  Trash2,
   UserRound,
   UsersRound,
   Wifi,
@@ -52,7 +49,6 @@ const {
   selectedAgentReady,
   selectedAgentWorking,
   resourceVisibility,
-  loadingSkills,
   visibleMessages,
   logs,
 } = storeToRefs(store);
@@ -91,8 +87,6 @@ const connectionLabel = computed(() => {
   return 'Offline';
 });
 
-const loadingSkillSet = computed(() => new Set(loadingSkills.value));
-
 const resourceGroups = computed(() => {
   const groups = [
     { type: 'skill', label: 'Skills', resources: [] as typeof resourceVisibility.value },
@@ -109,9 +103,12 @@ const resourceGroups = computed(() => {
 });
 
 const activeToolResources = computed(() => [
-  ...loadingSkills.value,
   ...resourceVisibility.value
-    .filter((entry) => entry.visible && entry.resource.startsWith('workflow:'))
+    .filter(
+      (entry) =>
+        entry.visible &&
+        (entry.resource.startsWith('skill:') || entry.resource.startsWith('workflow:')),
+    )
     .map((entry) => entry.resource),
 ]);
 
@@ -225,10 +222,6 @@ function submitMessage() {
   if (!store.sendMessage(text)) return;
   draft.value = '';
   nextTick(scrollMessages);
-}
-
-function toggleSkill(skill: string) {
-  store.setSkillLoading(skill, !loadingSkillSet.value.has(skill));
 }
 
 function toggleResourceVisibility(resource: string, visible: boolean) {
@@ -605,15 +598,6 @@ function logLevelClass(log: RuntimeLog) {
               <div class="tool-resource-heading">
                 <span>{{ group.label }}</span>
                 <span>{{ group.resources.length }}</span>
-                <button
-                  v-if="group.type === 'skill' && loadingSkills.length"
-                  class="tool-group-action"
-                  type="button"
-                  title="Unload all skills"
-                  @click="store.unloadAllSkills"
-                >
-                  <Trash2 :size="13" />
-                </button>
               </div>
               <div v-if="group.resources.length" class="tool-resource-list">
                 <div
@@ -623,20 +607,6 @@ function logLevelClass(log: RuntimeLog) {
                 >
                   <span :class="['resource-state-dot', { 'is-active': entry.visible }]" />
                   <code :title="entry.resource">{{ resourceName(entry.resource) }}</code>
-                  <button
-                    v-if="group.type === 'skill' && entry.visible"
-                    class="tool-row-action"
-                    type="button"
-                    :title="loadingSkillSet.has(entry.resource) ? 'Unload skill' : 'Load skill'"
-                    :aria-label="
-                      loadingSkillSet.has(entry.resource) ? 'Unload skill' : 'Load skill'
-                    "
-                    :disabled="connectionStatus !== 'online' || !selectedAgentReady"
-                    @click="toggleSkill(entry.resource)"
-                  >
-                    <CircleMinus v-if="loadingSkillSet.has(entry.resource)" :size="14" />
-                    <CirclePlus v-else :size="14" />
-                  </button>
                   <button
                     v-if="entry.default"
                     class="tool-row-action"
