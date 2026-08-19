@@ -26,7 +26,7 @@ export interface ConversationEntry {
   workspaceKey: string;
   agent: string;
   role: MessageRole;
-  reasoning: string;
+  thinking: string;
   content: string;
   toolCalls: ToolCall[];
   timestamp: number;
@@ -416,7 +416,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         receiveMessageDelta(event);
         break;
       case 'agent.message.reasoning_delta':
-        receiveReasoningDelta(event);
+        receiveThinkingDelta(event);
         break;
       case 'agent.failure':
         receiveFailure(event.failure);
@@ -469,7 +469,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           workspaceKey: route.workspaceKey,
           agent: route.agent,
           role: 'assistant',
-          reasoning: '',
+          thinking: '',
           content: event.content,
           toolCalls: [],
           timestamp: Date.now(),
@@ -479,7 +479,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     replaceCurrentMessage(event.id, next);
   }
 
-  function receiveReasoningDelta(event: { id: string; agent: string; content: string }) {
+  function receiveThinkingDelta(event: { id: string; agent: string; content: string }) {
     const route = resolveMessageRoute(event.id, event.agent);
     if (!route || !routeIsWorking(route)) return;
     const existing = currentMessages.value.get(event.id);
@@ -489,7 +489,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     const next: CurrentMessage = existing
       ? {
           ...existing,
-          reasoning: existing.reasoning + event.content,
+          thinking: existing.thinking + event.content,
           backendAgentId: event.agent,
         }
       : {
@@ -499,7 +499,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           workspaceKey: route.workspaceKey,
           agent: route.agent,
           role: 'assistant',
-          reasoning: event.content,
+          thinking: event.content,
           content: '',
           toolCalls: [],
           timestamp: Date.now(),
@@ -528,7 +528,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       workspaceKey: route.workspaceKey,
       agent: route.agent,
       role: 'assistant',
-      reasoning: event.message.Assistant.reasoning ?? '',
+      thinking: event.message.Assistant.reasoning ?? '',
       content: event.message.Assistant.content ?? '',
       toolCalls: event.message.Assistant.tool_calls,
       timestamp: existing?.timestamp ?? Date.now(),
@@ -558,7 +558,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           message.workspaceKey === current.workspaceKey &&
           message.agent === current.agent &&
           message.role === 'assistant' &&
-          message.reasoning === current.reasoning &&
+          message.thinking === current.thinking &&
           message.content === current.content &&
           sameToolCalls(message.toolCalls, current.toolCalls),
       );
@@ -647,7 +647,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           workspaceKey: workspaceKey(history.workspace),
           agent: history.agent,
           role: decoded.role,
-          reasoning: decoded.reasoning,
+          thinking: decoded.thinking,
           content: decoded.content,
           toolCalls: decoded.toolCalls,
           timestamp: entry.created_at_ms,
@@ -751,14 +751,14 @@ function workspaceReference(workspace: WorkspaceInfo): WorkspaceRef {
 
 function decodeMessage(message: AgentMessage): {
   role: MessageRole;
-  reasoning: string;
+  thinking: string;
   content: string;
   toolCalls: ToolCall[];
 } {
   if ('User' in message) {
     return {
       role: 'user',
-      reasoning: '',
+      thinking: '',
       content: message.User.content,
       toolCalls: [],
     };
@@ -766,14 +766,14 @@ function decodeMessage(message: AgentMessage): {
   if ('Assistant' in message) {
     return {
       role: 'assistant',
-      reasoning: message.Assistant.reasoning ?? '',
+      thinking: message.Assistant.reasoning ?? '',
       content: message.Assistant.content ?? '',
       toolCalls: message.Assistant.tool_calls,
     };
   }
   return {
     role: 'tool',
-    reasoning: '',
+    thinking: '',
     content: message.Tool.content,
     toolCalls: [],
   };

@@ -192,7 +192,7 @@ function shouldFollowMessages() {
 watch(
   () =>
     visibleMessages.value.map(
-      (message) => `${message.key}:${message.reasoning.length}:${message.content.length}`,
+      (message) => `${message.key}:${message.thinking.length}:${message.content.length}`,
     ),
   () => {
     const follow = shouldFollowMessages();
@@ -553,9 +553,9 @@ function logLevelClass(log: RuntimeLog) {
               <strong>{{ roleLabel(message) }}</strong>
               <span>{{ formatTime(message.timestamp) }}</span>
             </div>
-            <details v-if="message.reasoning" class="message-reasoning">
-              <summary>Reasoning</summary>
-              <p>{{ message.reasoning }}</p>
+            <details v-if="message.thinking" class="message-thinking">
+              <summary>Thinking</summary>
+              <p>{{ message.thinking }}</p>
             </details>
             <details v-if="message.role === 'tool' && message.content" class="tool-response">
               <summary>

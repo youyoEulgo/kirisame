@@ -750,12 +750,12 @@ textarea:focus-visible {
 }
 
 /* Only turns with an actual content block keep the trailing timestamp;
-   tool-call-only and reasoning-only turns stay clean. */
+   tool-call-only and thinking-only turns stay clean. */
 .message-row--assistant:not(:has(.message-content)) .message-meta {
   display: none;
 }
 
-.message-row--assistant .message-reasoning {
+.message-row--assistant .message-thinking {
   order: 1;
 }
 
@@ -1042,8 +1042,8 @@ textarea:focus-visible {
   display: none;
 }
 
-/* Reasoning = DSH Think row: gray, 14/24, indented body. */
-.message-reasoning {
+/* Thinking = DSH Think row: gray, 14/24, indented body. */
+.message-thinking {
   margin: 0;
   padding: 0;
   border: 0;
@@ -1051,7 +1051,7 @@ textarea:focus-visible {
   background: transparent;
 }
 
-.message-reasoning summary {
+.message-thinking summary {
   width: fit-content;
   max-width: 100%;
   padding: 1px 0;
@@ -1064,11 +1064,11 @@ textarea:focus-visible {
   user-select: none;
 }
 
-.message-reasoning summary::-webkit-details-marker {
+.message-thinking summary::-webkit-details-marker {
   display: none;
 }
 
-.message-reasoning summary::before {
+.message-thinking summary::before {
   content: '›';
   display: inline-block;
   margin-right: 8px;
@@ -1076,15 +1076,15 @@ textarea:focus-visible {
   transition: transform 140ms var(--mg-ease);
 }
 
-.message-reasoning[open] summary::before {
+.message-thinking[open] summary::before {
   transform: rotate(90deg);
 }
 
-.message-reasoning[open] summary {
+.message-thinking[open] summary {
   margin-bottom: 2px;
 }
 
-.message-reasoning p {
+.message-thinking p {
   margin: 0;
   padding: 2px 0 2px 22px;
   color: var(--mg-text-tertiary);
@@ -1095,7 +1095,7 @@ textarea:focus-visible {
 }
 
 /* Tool call rows = DSH ToolRow: one 24px collapsed line with a
-   reasoning-style triangle; the full arguments live in the expanded body. */
+   thinking-style triangle; the full arguments live in the expanded body. */
 .tool-call-list {
   display: flex;
   flex-direction: column;
@@ -1207,7 +1207,7 @@ textarea:focus-visible {
 }
 
 /* Tool response mirrors the request row grammar:
-   small wrench + Response badge + truncated text, expandable like reasoning. */
+   small wrench + Response badge + truncated text, expandable like thinking. */
 .message-row--tool {
   display: flex;
   align-items: flex-start;
