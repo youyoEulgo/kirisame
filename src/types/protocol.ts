@@ -87,6 +87,8 @@ export interface LogRecord {
   spans: string[];
 }
 
+export type MclCommandResult = { Ok: unknown } | { Err: string };
+
 export type ClientMessage =
   | {
       type: 'connection.register';
@@ -104,6 +106,27 @@ export type ClientMessage =
         message: {
           content: string;
         };
+      };
+    }
+  | {
+      type: 'agent.assistant';
+      id: string;
+      message: {
+        workspace: WorkspaceRef;
+        agent: string | null;
+        content: string | null;
+        reasoning: string | null;
+        tool_calls: Array<{ id: string; resource_id: ResourceRef; arguments: string }>;
+      };
+    }
+  | {
+      type: 'mcl.command';
+      id: string;
+      message: {
+        workspace: WorkspaceRef;
+        agent: string | null;
+        command: string;
+        binding: unknown;
       };
     }
   | {
@@ -157,6 +180,11 @@ export type ServerMessage =
       };
     }
   | {
+      type: 'mcl.command_result';
+      id: string;
+      result: MclCommandResult;
+    }
+  | {
       type: 'agent.message.delta';
       id: string;
       agent: string;
@@ -207,6 +235,10 @@ export function parseServerMessage(raw: string): ServerMessage | null {
           : null;
       case 'agent.message':
         return isRecord(value.message) ? (value as ServerMessage) : null;
+      case 'mcl.command_result':
+        return typeof value.id === 'string' && isMclCommandResult(value.result)
+          ? (value as ServerMessage)
+          : null;
       case 'agent.message.delta':
       case 'agent.message.reasoning_delta':
         return typeof value.id === 'string' &&
@@ -222,6 +254,11 @@ export function parseServerMessage(raw: string): ServerMessage | null {
   } catch {
     return null;
   }
+}
+
+function isMclCommandResult(value: unknown): value is MclCommandResult {
+  if (!isRecord(value)) return false;
+  return Object.prototype.hasOwnProperty.call(value, 'Ok') || typeof value.Err === 'string';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

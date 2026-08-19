@@ -13,6 +13,7 @@ import {
   Eye,
   EyeOff,
   LockKeyhole,
+  Plus,
   Menu,
   MessageSquare,
   PanelRight,
@@ -54,6 +55,8 @@ const {
 } = storeToRefs(store);
 
 const draft = ref('');
+const pendingSkill = ref<string | null>(null);
+const submittingSkill = ref(false);
 const draftInput = ref<HTMLTextAreaElement | null>(null);
 const messageList = ref<HTMLElement | null>(null);
 const conversationPane = ref<HTMLElement | null>(null);
@@ -63,6 +66,7 @@ const toolManager = ref<HTMLElement | null>(null);
 const sidebarOpen = ref(false);
 const activityOpen = ref(false);
 const toolsOpen = ref(false);
+const composerActionsOpen = ref(false);
 const settingsOpen = ref(false);
 const logFilter = ref<'all' | 'errors'>('all');
 const endpointDraft = ref(endpoint.value);
@@ -208,10 +212,19 @@ function autosizeDraft() {
 }
 
 watch(draft, () => nextTick(autosizeDraft));
+watch([selectedWorkspace, selectedAgent], () => {
+  pendingSkill.value = null;
+});
 
 function closeToolsOnOutsideClick(event: MouseEvent) {
-  if (!toolsOpen.value) return;
   const target = event.target;
+  if (
+    composerActionsOpen.value &&
+    (!(target instanceof Element) || !target.closest('.composer-add-menu'))
+  ) {
+    composerActionsOpen.value = false;
+  }
+  if (!toolsOpen.value) return;
   if (target instanceof Node && toolManager.value && !toolManager.value.contains(target)) {
     toolsOpen.value = false;
   }
@@ -239,12 +252,46 @@ onBeforeUnmount(() => {
   store.disconnect();
 });
 
-function submitMessage() {
+async function submitMessage() {
   const text = draft.value.trim();
+  if (pendingSkill.value) {
+    if (submittingSkill.value) return;
+    submittingSkill.value = true;
+    try {
+      await store.sendSkillInvocation(text, pendingSkill.value);
+      draft.value = '';
+      pendingSkill.value = null;
+      nextTick(scrollMessages);
+    } catch (error) {
+      connectionError.value = error instanceof Error ? error.message : String(error);
+    } finally {
+      submittingSkill.value = false;
+    }
+    return;
+  }
   if (!text) return;
   if (!store.sendMessage(text)) return;
   draft.value = '';
   nextTick(scrollMessages);
+}
+
+function selectSkill(resource: string) {
+  pendingSkill.value = resource;
+  composerActionsOpen.value = false;
+  nextTick(() => draftInput.value?.focus());
+}
+
+function cancelPendingSkill() {
+  pendingSkill.value = null;
+  nextTick(() => draftInput.value?.focus());
+}
+
+function handleDraftBackspace(event: KeyboardEvent) {
+  const input = event.currentTarget;
+  if (!(input instanceof HTMLTextAreaElement) || !pendingSkill.value) return;
+  if (input.selectionStart !== 0 || input.selectionEnd !== 0) return;
+  event.preventDefault();
+  cancelPendingSkill();
 }
 
 function toggleResourceVisibility(resource: string, visible: boolean) {
@@ -546,46 +593,95 @@ function logLevelClass(log: RuntimeLog) {
 
       <footer ref="composerFooter" class="composer" @wheel="handleComposerWheel">
         <form class="composer-box" @submit.prevent="submitMessage">
-          <textarea
-            ref="draftInput"
-            v-model="draft"
-            :disabled="!selectedWorkspace || connectionStatus !== 'online' || !selectedAgentReady"
-            rows="1"
-            :placeholder="
-              !selectedWorkspace
-                ? 'Select a workspace...'
-                : selectedAgentReady
-                  ? selectedAgentWorking
-                    ? `${selectedAgentName} is working...`
-                    : `Message ${selectedAgentName}...`
-                  : 'Agent is not ready...'
-            "
-            @keydown.enter.exact.prevent="submitMessage"
-          ></textarea>
-          <button
-            v-if="selectedAgentWorking"
-            class="send-button send-button--stop"
-            type="button"
-            title="Stop current turn"
-            :disabled="!selectedWorkspace || connectionStatus !== 'online' || !selectedAgentReady"
-            @click="store.abortTurn()"
-          >
-            <Square :size="14" :stroke-width="0" fill="currentColor" />
-          </button>
-          <button
-            v-else
-            class="send-button"
-            type="submit"
-            title="Send message"
-            :disabled="
-              !draft.trim() ||
-              !selectedWorkspace ||
-              connectionStatus !== 'online' ||
-              !selectedAgentReady
-            "
-          >
-            <Send :size="18" />
-          </button>
+          <div class="composer-input-row">
+            <div v-if="pendingSkill" class="composer-call-block">
+              <div class="composer-call-copy">
+                <span class="composer-call-kind">Skill</span>
+                <strong>{{ resourceName(pendingSkill) }}</strong>
+              </div>
+              <button type="button" title="Cancel Skill call" @click="cancelPendingSkill">
+                <X :size="14" />
+              </button>
+            </div>
+            <textarea
+              ref="draftInput"
+              v-model="draft"
+              :disabled="!selectedWorkspace || connectionStatus !== 'online' || !selectedAgentReady"
+              rows="1"
+              :placeholder="
+                !selectedWorkspace
+                  ? 'Select a workspace...'
+                  : selectedAgentReady
+                    ? selectedAgentWorking
+                      ? `${selectedAgentName} is working...`
+                      : `Message ${selectedAgentName}...`
+                    : 'Agent is not ready...'
+              "
+              @keydown.enter.exact.prevent="submitMessage"
+              @keydown.backspace="handleDraftBackspace"
+            ></textarea>
+          </div>
+          <div class="composer-actions">
+            <div class="composer-add-menu">
+              <button
+                class="composer-add-button"
+                type="button"
+                title="Add to message"
+                :aria-expanded="composerActionsOpen"
+                :disabled="!selectedWorkspace || connectionStatus !== 'online' || !selectedAgentReady"
+                @click="composerActionsOpen = !composerActionsOpen"
+              >
+                <Plus :size="18" />
+              </button>
+              <div v-if="composerActionsOpen" class="composer-add-popover">
+                <div class="composer-add-heading">Skills</div>
+                <button
+                  v-for="entry in resourceVisibility.filter(
+                    (item) => item.visible && item.resource.startsWith('skill:'),
+                  )"
+                  :key="entry.resource"
+                  type="button"
+                  @click="selectSkill(entry.resource)"
+                >
+                  <span class="resource-state-dot is-active" />
+                  <span>{{ resourceName(entry.resource) }}</span>
+                </button>
+                <span
+                  v-if="
+                    !resourceVisibility.some(
+                      (item) => item.visible && item.resource.startsWith('skill:'),
+                    )
+                  "
+                  class="composer-add-empty"
+                >No visible Skills</span>
+              </div>
+            </div>
+            <button
+              v-if="selectedAgentWorking"
+              class="send-button send-button--stop"
+              type="button"
+              title="Stop current turn"
+              :disabled="!selectedWorkspace || connectionStatus !== 'online' || !selectedAgentReady"
+              @click="store.abortTurn()"
+            >
+              <Square :size="14" :stroke-width="0" fill="currentColor" />
+            </button>
+            <button
+              v-else
+              class="send-button"
+              type="submit"
+              title="Send message"
+              :disabled="
+                (!draft.trim() && !pendingSkill) ||
+                submittingSkill ||
+                !selectedWorkspace ||
+                connectionStatus !== 'online' ||
+                !selectedAgentReady
+              "
+            >
+              <Send :size="18" />
+            </button>
+          </div>
         </form>
         <div v-if="selectedWorkspace" ref="toolManager" class="tool-manager">
           <button

@@ -51,6 +51,11 @@ interface CurrentMessage extends ConversationEntry {
   backendAgentId: string;
 }
 
+interface PendingMclCommand {
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+}
+
 export const useWorkbenchStore = defineStore('workbench', () => {
   const endpoint = ref(DEFAULT_ENDPOINT);
   const connectionStatus = ref<ConnectionStatus>('offline');
@@ -63,6 +68,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const currentMessages = ref<Map<string, CurrentMessage>>(new Map());
   const pendingRoutes = reactive(new Map<string, PendingMessageRoute>());
   const logs = ref<RuntimeLog[]>([]);
+  const pendingMclCommands = new Map<string, PendingMclCommand>();
 
   let socket: WebSocket | null = null;
   let reconnectTimer: number | undefined;
@@ -185,6 +191,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       socket = null;
       connectionStatus.value = 'offline';
       clearCurrentMessages();
+      rejectPendingMclCommands('Backend WebSocket disconnected');
       if (shouldReconnect) scheduleReconnect();
     };
     return true;
@@ -231,6 +238,92 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         message: {
           content: text,
         },
+      },
+    };
+    pendingRoutes.set(id, {
+      workspaceKey: workspaceKey(workspace),
+      agent: selectedAgent.value || workspace.manager,
+    });
+    socket.send(JSON.stringify(request));
+    return id;
+  }
+
+  function executeMclCommand(
+    command: string,
+    binding: unknown = null,
+    requestId = crypto.randomUUID(),
+  ): Promise<unknown> {
+    const workspace = selectedWorkspace.value;
+    const source = command.trim();
+    if (!workspace || !source) return Promise.reject(new Error('MCL command is empty'));
+    if (!selectedAgentReady.value) {
+      return Promise.reject(
+        new Error(selectedAgentState.value?.error || 'The selected agent is not ready'),
+      );
+    }
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('Connect to the daemon before executing an MCL command'));
+    }
+    const id = requestId;
+    const request: ClientMessage = {
+      type: 'mcl.command',
+      id,
+      message: {
+        workspace: workspaceReference(workspace),
+        agent: selectedAgent.value,
+        command: source,
+        binding,
+      },
+    };
+    return new Promise((resolve, reject) => {
+      pendingMclCommands.set(id, { resolve, reject });
+      try {
+        socket?.send(JSON.stringify(request));
+      } catch (error) {
+        pendingMclCommands.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  async function sendSkillInvocation(content: string, resourceId: ResourceRef): Promise<string> {
+    const workspace = selectedWorkspace.value;
+    const text = content.trim();
+    if (!workspace || !selectedAgentReady.value) {
+      throw new Error(selectedAgentState.value?.error || 'The selected agent is not ready');
+    }
+    if (selectedAgentWorking.value) throw new Error('The selected agent is already working');
+    if (!resourceId.startsWith('skill:')) throw new Error('Only Skill resources can be loaded');
+    if (!selectedAgentState.value?.visible_resources.includes(resourceId)) {
+      throw new Error('The selected Skill is not visible to this agent');
+    }
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      throw new Error('Connect to the daemon before loading a Skill');
+    }
+    const id = crypto.randomUUID();
+    if (text) {
+      const userMessage = {
+        type: 'user',
+        content: text,
+      };
+      await executeMclCommand('INJECT ? TO recent_conversation FROM msg', userMessage, id);
+      await executeMclCommand('EMIT EFFECT history_append', userMessage, id);
+    }
+    const request: ClientMessage = {
+      type: 'agent.assistant',
+      id,
+      message: {
+        workspace: workspaceReference(workspace),
+        agent: selectedAgent.value,
+        content: null,
+        reasoning: null,
+        tool_calls: [
+          {
+            id: `manual-${crypto.randomUUID()}`,
+            resource_id: resourceId,
+            arguments: '{}',
+          },
+        ],
       },
     };
     pendingRoutes.set(id, {
@@ -311,6 +404,14 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       case 'agent.message':
         receiveAgentMessage(event.message);
         break;
+      case 'mcl.command_result': {
+        const pending = pendingMclCommands.get(event.id);
+        if (!pending) break;
+        pendingMclCommands.delete(event.id);
+        if ('Ok' in event.result) pending.resolve(event.result.Ok);
+        else pending.reject(new Error(event.result.Err));
+        break;
+      }
       case 'agent.message.delta':
         receiveMessageDelta(event);
         break;
@@ -597,6 +698,12 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     socket = null;
     current.onclose = null;
     current.close();
+    rejectPendingMclCommands('Backend WebSocket closed');
+  }
+
+  function rejectPendingMclCommands(message: string) {
+    for (const pending of pendingMclCommands.values()) pending.reject(new Error(message));
+    pendingMclCommands.clear();
   }
 
   return {
@@ -620,6 +727,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     selectWorkspace,
     selectAgent,
     sendMessage,
+    executeMclCommand,
+    sendSkillInvocation,
     abortTurn,
     setResourceVisibility,
     clearLogs,
