@@ -112,10 +112,19 @@ const activeToolResources = computed(() => [
     .map((entry) => entry.resource),
 ]);
 
-const compactTokenNumber = new Intl.NumberFormat(undefined, {
-  notation: 'compact',
-  maximumFractionDigits: 1,
-});
+function compactTokenNumber(value: number) {
+  const units = [
+    { threshold: 1_000_000_000_000, suffix: 't' },
+    { threshold: 1_000_000_000, suffix: 'b' },
+    { threshold: 1_000_000, suffix: 'm' },
+    { threshold: 1_000, suffix: 'k' },
+  ];
+  const unit = units.find(({ threshold }) => value >= threshold);
+  if (!unit) return String(value);
+  const scaled = value / unit.threshold;
+  const formatted = scaled >= 100 ? scaled.toFixed(0) : scaled.toFixed(1).replace(/\.0$/, '');
+  return `${formatted}${unit.suffix}`;
+}
 
 const tokenUsageItems = computed(() => {
   const state = selectedAgentState.value;
@@ -126,17 +135,17 @@ const tokenUsageItems = computed(() => {
   return [
     {
       label: 'In',
-      value: compactTokenNumber.format(input),
+      value: compactTokenNumber(input),
       title: `Input tokens: ${input.toLocaleString()}`,
     },
     {
       label: 'Out',
-      value: compactTokenNumber.format(output),
+      value: compactTokenNumber(output),
       title: `Output tokens: ${output.toLocaleString()}`,
     },
     {
       label: 'Cached',
-      value: compactTokenNumber.format(cached),
+      value: compactTokenNumber(cached),
       title: `Cache-hit tokens: ${cached.toLocaleString()}`,
     },
     {
@@ -145,6 +154,20 @@ const tokenUsageItems = computed(() => {
       title: `Cache hit rate: ${(hitRate * 100).toFixed(2)}%`,
     },
   ];
+});
+
+const contextWindowUsage = computed(() => {
+  const used = selectedAgentState.value?.last_input_tokens ?? 0;
+  const maximum = selectedAgentState.value?.context_window_tokens ?? 0;
+  const ratio = maximum > 0 ? Math.min(used / maximum, 1) : 0;
+  return {
+    ratio,
+    dashOffset: 44 * (1 - ratio),
+    title:
+      maximum > 0
+        ? `Context window: ${used.toLocaleString()} / ${maximum.toLocaleString()} tokens (${(ratio * 100).toFixed(1)}%)`
+        : 'Context window usage unavailable',
+  };
 });
 
 const currentChannelLabel = computed(() => {
@@ -590,6 +613,23 @@ function logLevelClass(log: RuntimeLog) {
             >
               <span>{{ item.label }}</span>
               <strong>{{ item.value }}</strong>
+            </span>
+            <span
+              class="context-window-usage"
+              role="img"
+              :aria-label="contextWindowUsage.title"
+              :title="contextWindowUsage.title"
+            >
+              <svg viewBox="0 0 18 18" aria-hidden="true">
+                <circle class="context-window-track" cx="9" cy="9" r="7" />
+                <circle
+                  class="context-window-value"
+                  cx="9"
+                  cy="9"
+                  r="7"
+                  :style="{ strokeDashoffset: contextWindowUsage.dashOffset }"
+                />
+              </svg>
             </span>
           </div>
 

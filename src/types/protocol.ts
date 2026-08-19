@@ -25,6 +25,8 @@ export interface AgentState {
   total_output_tokens: number;
   total_cache_hit_tokens: number;
   cache_hit_rate: number;
+  last_input_tokens: number;
+  context_window_tokens: number;
 }
 
 export interface AgentMclState {

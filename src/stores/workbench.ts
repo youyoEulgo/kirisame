@@ -574,6 +574,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       total_output_tokens: state.total_output_tokens ?? 0,
       total_cache_hit_tokens: state.total_cache_hit_tokens ?? 0,
       cache_hit_rate: state.cache_hit_rate ?? 0,
+      last_input_tokens: state.last_input_tokens ?? 0,
+      context_window_tokens: state.context_window_tokens ?? 0,
     }));
   }
 

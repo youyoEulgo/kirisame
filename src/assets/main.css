@@ -1462,6 +1462,39 @@ textarea:focus-visible {
   font-weight: 500;
 }
 
+.context-window-usage {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  align-items: center;
+  justify-content: center;
+}
+
+.context-window-usage svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  transform: rotate(-90deg);
+}
+
+.context-window-track,
+.context-window-value {
+  fill: none;
+  stroke-width: 2;
+}
+
+.context-window-track {
+  stroke: var(--mg-border-strong);
+}
+
+.context-window-value {
+  stroke: var(--mg-brand);
+  stroke-linecap: round;
+  stroke-dasharray: 44;
+  transition: stroke-dashoffset 180ms var(--mg-ease);
+}
+
 .tool-manager-trigger:hover,
 .tool-manager-trigger[aria-expanded='true'] {
   color: var(--mg-text-primary);
