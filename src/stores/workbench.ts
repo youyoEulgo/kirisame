@@ -236,7 +236,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         workspace: workspaceReference(workspace),
         agent: selectedAgent.value,
         message: {
-          content: text,
+          User: {
+            content: text,
+          },
         },
       },
     };
@@ -309,21 +311,31 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       await executeMclCommand('INJECT ? TO recent_conversation FROM msg', userMessage, id);
       await executeMclCommand('EMIT EFFECT history_append', userMessage, id);
     }
+    const mapping = selectedAgentState.value?.resources.find(
+      (entry) => entry.resource_id === resourceId,
+    );
+    if (!mapping) {
+      throw new Error('The selected Skill has no callable resource name for this agent');
+    }
     const request: ClientMessage = {
-      type: 'agent.assistant',
+      type: 'agent.message',
       id,
       message: {
         workspace: workspaceReference(workspace),
         agent: selectedAgent.value,
-        content: null,
-        reasoning: null,
-        tool_calls: [
-          {
-            id: `manual-${crypto.randomUUID()}`,
-            resource_id: resourceId,
-            arguments: '{}',
+        message: {
+          Assistant: {
+            reasoning: null,
+            content: null,
+            tool_calls: [
+              {
+                id: `manual-${crypto.randomUUID()}`,
+                tool_name: mapping.resource_name,
+                arguments: '{}',
+              },
+            ],
           },
-        ],
+        },
       },
     };
     pendingRoutes.set(id, {
@@ -677,6 +689,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       visibility_source: state.visibility_source
         ? { ...state.visibility_source }
         : null,
+      resources: (state.resources ?? []).map((entry) => ({ ...entry })),
       mcl: state.mcl
         ? {
             ...state.mcl,

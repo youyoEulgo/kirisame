@@ -27,6 +27,7 @@ export interface AgentState {
   visible_resources: ResourceRef[];
   default_visibility_source: BlockPath | null;
   visibility_source: BlockPath | null;
+  resources: AgentResource[];
   mcl: AgentMclState | null;
   total_input_tokens: number;
   total_output_tokens: number;
@@ -34,6 +35,11 @@ export interface AgentState {
   cache_hit_rate: number;
   last_input_tokens: number;
   context_window_tokens: number;
+}
+
+export interface AgentResource {
+  resource_id: ResourceRef;
+  resource_name: string;
 }
 
 export interface AgentMclState {
@@ -110,20 +116,7 @@ export type ClientMessage =
       message: {
         workspace: WorkspaceRef;
         agent: string | null;
-        message: {
-          content: string;
-        };
-      };
-    }
-  | {
-      type: 'agent.assistant';
-      id: string;
-      message: {
-        workspace: WorkspaceRef;
-        agent: string | null;
-        content: string | null;
-        reasoning: string | null;
-        tool_calls: Array<{ id: string; resource_id: ResourceRef; arguments: string }>;
+        message: AgentMessage;
       };
     }
   | {
