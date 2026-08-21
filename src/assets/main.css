@@ -1722,9 +1722,18 @@ textarea:focus-visible {
     var(--mg-shadow-card);
 }
 
+.composer-call-row {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .composer-call-block {
   display: flex;
-  width: min(42%, 240px);
+  width: auto;
+  max-width: 100%;
+  min-width: min(42%, 240px);
   min-height: 42px;
   align-items: center;
   gap: 10px;

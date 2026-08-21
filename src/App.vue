@@ -593,8 +593,8 @@ function logLevelClass(log: RuntimeLog) {
 
       <footer ref="composerFooter" class="composer" @wheel="handleComposerWheel">
         <form class="composer-box" @submit.prevent="submitMessage">
-          <div class="composer-input-row">
-            <div v-if="pendingSkill" class="composer-call-block">
+          <div v-if="pendingSkill" class="composer-call-row">
+            <div class="composer-call-block">
               <div class="composer-call-copy">
                 <span class="composer-call-kind">Skill</span>
                 <strong>{{ resourceName(pendingSkill) }}</strong>
@@ -603,6 +603,8 @@ function logLevelClass(log: RuntimeLog) {
                 <X :size="14" />
               </button>
             </div>
+          </div>
+          <div class="composer-input-row">
             <textarea
               ref="draftInput"
               v-model="draft"
