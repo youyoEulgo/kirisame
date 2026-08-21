@@ -12,6 +12,11 @@ export interface WorkspaceInfo extends WorkspaceRef {
 export type ResourceRef = string;
 export type AgentStatus = 'creating' | 'ready' | 'failed';
 
+export interface BlockPath {
+  block_id: string;
+  inner_id: string;
+}
+
 export interface AgentState {
   workspace: WorkspaceRef;
   agent: string;
@@ -20,6 +25,8 @@ export interface AgentState {
   error: string | null;
   default_resources: ResourceRef[];
   visible_resources: ResourceRef[];
+  default_visibility_source: BlockPath | null;
+  visibility_source: BlockPath | null;
   mcl: AgentMclState | null;
   total_input_tokens: number;
   total_output_tokens: number;
@@ -135,15 +142,6 @@ export type ClientMessage =
       message: {
         workspace: WorkspaceRef;
         agent: string | null;
-      };
-    }
-  | {
-      type: 'agent.visibility.inject' | 'agent.visibility.remove';
-      id: string;
-      message: {
-        workspace: WorkspaceRef;
-        agent: string | null;
-        resource_id: ResourceRef;
       };
     }
   | {

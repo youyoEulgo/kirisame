@@ -360,22 +360,28 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   function setResourceVisibility(resourceId: ResourceRef, visible: boolean): string | null {
     const workspace = selectedWorkspace.value;
     const state = selectedAgentState.value;
+    const source = state?.visibility_source;
     if (
       !workspace ||
       !selectedAgentReady.value ||
       !state?.default_resources.includes(resourceId) ||
+      !source ||
       !socket ||
       socket.readyState !== WebSocket.OPEN
     )
       return null;
     const id = crypto.randomUUID();
+    const command = visible
+      ? `INJECT ? TO ${source.inner_id} FROM ${source.block_id}`
+      : `DELETE ${source.inner_id} FROM ${source.block_id} WHERE id == ?`;
     const request: ClientMessage = {
-      type: visible ? 'agent.visibility.inject' : 'agent.visibility.remove',
+      type: 'mcl.command',
       id,
       message: {
         workspace: workspaceReference(workspace),
         agent: selectedAgent.value,
-        resource_id: resourceId,
+        command,
+        binding: resourceId,
       },
     };
     socket.send(JSON.stringify(request));
@@ -665,6 +671,12 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       error: state.error ?? null,
       default_resources: [...(state.default_resources ?? [])],
       visible_resources: [...state.visible_resources],
+      default_visibility_source: state.default_visibility_source
+        ? { ...state.default_visibility_source }
+        : null,
+      visibility_source: state.visibility_source
+        ? { ...state.visibility_source }
+        : null,
       mcl: state.mcl
         ? {
             ...state.mcl,
