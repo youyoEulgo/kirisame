@@ -94,7 +94,7 @@ const connectionLabel = computed(() => {
 const resourceGroups = computed(() => {
   const groups = [
     { type: 'skill', label: 'Skills', resources: [] as typeof resourceVisibility.value },
-    { type: 'workflow', label: 'Workflows', resources: [] as typeof resourceVisibility.value },
+    { type: 'hook', label: 'Hooks', resources: [] as typeof resourceVisibility.value },
     { type: 'tool', label: 'Tools', resources: [] as typeof resourceVisibility.value },
     { type: 'shell', label: 'Shells', resources: [] as typeof resourceVisibility.value },
   ];
@@ -111,7 +111,7 @@ const activeToolResources = computed(() => [
     .filter(
       (entry) =>
         entry.visible &&
-        (entry.resource.startsWith('skill:') || entry.resource.startsWith('workflow:')),
+        (entry.resource.startsWith('skill:') || entry.resource.startsWith('hook:')),
     )
     .map((entry) => entry.resource),
 ]);
@@ -636,26 +636,27 @@ function logLevelClass(log: RuntimeLog) {
                 <Plus :size="18" />
               </button>
               <div v-if="composerActionsOpen" class="composer-add-popover">
-                <div class="composer-add-heading">Skills</div>
-                <button
-                  v-for="entry in resourceVisibility.filter(
-                    (item) => item.visible && item.resource.startsWith('skill:'),
+                <template
+                  v-for="group in resourceGroups.filter(
+                    (group) => group.type === 'skill' || group.type === 'hook',
                   )"
-                  :key="entry.resource"
-                  type="button"
-                  @click="selectSkill(entry.resource)"
+                  :key="group.type"
                 >
-                  <span class="resource-state-dot is-active" />
-                  <span>{{ resourceName(entry.resource) }}</span>
-                </button>
-                <span
-                  v-if="
-                    !resourceVisibility.some(
-                      (item) => item.visible && item.resource.startsWith('skill:'),
-                    )
-                  "
-                  class="composer-add-empty"
-                >No visible Skills</span>
+                  <div class="composer-add-heading">{{ group.label }}</div>
+                  <button
+                    v-for="entry in group.resources.filter((item) => item.visible)"
+                    :key="entry.resource"
+                    type="button"
+                    @click="selectSkill(entry.resource)"
+                  >
+                    <span class="resource-state-dot is-active" />
+                    <span>{{ resourceName(entry.resource) }}</span>
+                  </button>
+                  <span
+                    v-if="!group.resources.some((item) => item.visible)"
+                    class="composer-add-empty"
+                  >No visible {{ group.label }}</span>
+                </template>
               </div>
             </div>
             <button

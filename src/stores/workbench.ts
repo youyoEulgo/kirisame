@@ -295,7 +295,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       throw new Error(selectedAgentState.value?.error || 'The selected agent is not ready');
     }
     if (selectedAgentWorking.value) throw new Error('The selected agent is already working');
-    if (!resourceId.startsWith('skill:')) throw new Error('Only Skill resources can be loaded');
+    if (!resourceId.startsWith('skill:') && !resourceId.startsWith('hook:')) {
+      throw new Error('Only Skill or Hook resources can be loaded');
+    }
     if (!selectedAgentState.value?.visible_resources.includes(resourceId)) {
       throw new Error('The selected Skill is not visible to this agent');
     }
@@ -690,12 +692,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         ? { ...state.visibility_source }
         : null,
       resources: (state.resources ?? []).map((entry) => ({ ...entry })),
-      mcl: state.mcl
-        ? {
-            ...state.mcl,
-            workflows: state.mcl.workflows.map((workflow) => ({ ...workflow })),
-          }
-        : null,
+      mcl: state.mcl ? { ...state.mcl } : null,
       total_input_tokens: state.total_input_tokens ?? 0,
       total_output_tokens: state.total_output_tokens ?? 0,
       total_cache_hit_tokens: state.total_cache_hit_tokens ?? 0,

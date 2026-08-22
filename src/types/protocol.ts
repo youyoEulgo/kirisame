@@ -47,13 +47,6 @@ export interface AgentMclState {
   base_program_hash: string;
   plan_hash: string;
   plan_generation: number;
-  workflows: WorkflowMclState[];
-}
-
-export interface WorkflowMclState {
-  instance_id: string;
-  resource_id: ResourceRef;
-  program_hash: string;
 }
 
 export interface HistoryMessage {
@@ -135,24 +128,6 @@ export type ClientMessage =
       message: {
         workspace: WorkspaceRef;
         agent: string | null;
-      };
-    }
-  | {
-      type: 'agent.workflow.attach';
-      id: string;
-      message: {
-        workspace: WorkspaceRef;
-        agent: string | null;
-        resource_id: ResourceRef;
-      };
-    }
-  | {
-      type: 'agent.workflow.detach';
-      id: string;
-      message: {
-        workspace: WorkspaceRef;
-        agent: string | null;
-        instance_id: string;
       };
     };
 
