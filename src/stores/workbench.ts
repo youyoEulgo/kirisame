@@ -68,6 +68,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const currentMessages = ref<Map<string, CurrentMessage>>(new Map());
   const pendingRoutes = reactive(new Map<string, PendingMessageRoute>());
   const logs = ref<RuntimeLog[]>([]);
+  const lastFailures = ref<Map<string, { kind: string; message: string }>>(new Map());
   const pendingMclCommands = new Map<string, PendingMclCommand>();
 
   let socket: WebSocket | null = null;
@@ -246,6 +247,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       workspaceKey: workspaceKey(workspace),
       agent: selectedAgent.value || workspace.manager,
     });
+    lastFailures.value.delete(
+      `${workspaceKey(workspace)}:${selectedAgent.value || workspace.manager}`,
+    );
     socket.send(JSON.stringify(request));
     return id;
   }
@@ -344,6 +348,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       workspaceKey: workspaceKey(workspace),
       agent: selectedAgent.value || workspace.manager,
     });
+    lastFailures.value.delete(
+      `${workspaceKey(workspace)}:${selectedAgent.value || workspace.manager}`,
+    );
     socket.send(JSON.stringify(request));
     return id;
   }
@@ -463,6 +470,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     message: string;
   }) {
     removeCurrentMessage(event.id);
+    lastFailures.value.set(`${workspaceKey(event.workspace)}:${event.agent}`, {
+      kind: event.kind,
+      message: event.message,
+    });
     logs.value.push({
       key: `failure-log:${event.id}:${Date.now()}`,
       timestamp: Date.now(),
@@ -748,6 +759,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     disconnect,
     selectWorkspace,
     selectAgent,
+    lastFailures,
     sendMessage,
     executeMclCommand,
     sendSkillInvocation,

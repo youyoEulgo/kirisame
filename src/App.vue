@@ -52,6 +52,7 @@ const {
   resourceVisibility,
   visibleMessages,
   logs,
+  lastFailures,
 } = storeToRefs(store);
 
 const draft = ref('');
@@ -83,6 +84,13 @@ const memberList = computed(() => {
   const workspace = selectedWorkspace.value;
   if (!workspace) return [];
   return workspace.agents.filter((agent) => agent !== workspace.manager);
+});
+
+const selectedAgentFailure = computed(() => {
+  const workspace = selectedWorkspace.value;
+  const agent = selectedAgent.value || workspace?.manager;
+  if (!workspace || !agent) return null;
+  return lastFailures.value.get(`${workspaceKey(workspace)}:${agent}`) ?? null;
 });
 
 const connectionLabel = computed(() => {
@@ -535,6 +543,9 @@ function logLevelClass(log: RuntimeLog) {
           </span>
           <span v-else-if="selectedAgentState?.status === 'creating'">Agent is starting.</span>
           <span v-else>Conversation is ready.</span>
+          <span v-if="selectedAgentFailure" class="agent-failure">
+            Last error: {{ selectedAgentFailure.message }}
+          </span>
         </div>
 
         <article
