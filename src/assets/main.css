@@ -744,6 +744,44 @@ textarea:focus-visible {
   margin-top: 12px;
 }
 
+.message-row--error {
+  align-items: flex-start;
+}
+
+.message-row--error .message-avatar {
+  display: none;
+}
+
+.message-row--error .message-body {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.message-row--error .message-content {
+  order: 1;
+}
+
+.message-row--error .message-meta {
+  order: 2;
+  min-height: 20px;
+  margin-top: 6px;
+}
+
+.message-row--error .message-meta strong {
+  display: none;
+}
+
+.message-row--error .message-content {
+  color: var(--mg-danger, #dc2626);
+}
+
+.message-row--error .message-content a {
+  color: inherit;
+  text-decoration: none;
+}
+
 /* Assistant turns don't repeat the agent id after the content. */
 .message-row--assistant .message-meta strong {
   display: none;
@@ -823,7 +861,8 @@ textarea:focus-visible {
 
 @media (hover: hover) {
   .message-row--user .message-meta,
-  .message-row--assistant .message-meta > span {
+  .message-row--assistant .message-meta > span,
+  .message-row--error .message-meta > span {
     opacity: 0;
     transition: opacity 80ms var(--mg-ease);
   }
@@ -831,7 +870,9 @@ textarea:focus-visible {
   .message-row--user:hover .message-meta,
   .message-row--user:focus-within .message-meta,
   .message-row--assistant:hover .message-meta > span,
-  .message-row--assistant:focus-within .message-meta > span {
+  .message-row--assistant:focus-within .message-meta > span,
+  .message-row--error:hover .message-meta > span,
+  .message-row--error:focus-within .message-meta > span {
     opacity: 1;
   }
 }

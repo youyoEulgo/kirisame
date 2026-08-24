@@ -6,6 +6,7 @@ import {
   Bot,
   Check,
   ChevronDown,
+  CircleAlert,
   ChevronRight,
   CloudOff,
   Command,
@@ -373,6 +374,7 @@ function roleLabel(message: ConversationEntry) {
   if (message.role === 'user') return 'You';
   if (message.role === 'assistant') return resourceName(message.agent);
   if (message.role === 'tool') return 'Tool response';
+  if (message.role === 'error') return 'Agent error';
   return 'System';
 }
 
@@ -557,6 +559,7 @@ function logLevelClass(log: RuntimeLog) {
             <UserRound v-if="message.role === 'user'" :size="16" />
             <Bot v-else-if="message.role === 'assistant'" :size="16" />
             <Wrench v-else-if="message.role === 'tool'" :size="15" />
+            <CircleAlert v-else-if="message.role === 'error'" :size="15" />
             <Zap v-else :size="15" />
           </div>
           <div class="message-body">

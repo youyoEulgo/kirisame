@@ -17,7 +17,7 @@ const DEFAULT_ENDPOINT = 'ws://127.0.0.1:3939/ws';
 const MAX_LOGS = 500;
 
 export type ConnectionStatus = 'offline' | 'connecting' | 'online';
-export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
+export type MessageRole = 'system' | 'user' | 'assistant' | 'tool' | 'error';
 
 export interface ConversationEntry {
   key: string;
@@ -803,6 +803,14 @@ function decodeMessage(message: AgentMessage): {
       thinking: message.Assistant.reasoning ?? '',
       content: message.Assistant.content ?? '',
       toolCalls: message.Assistant.tool_calls,
+    };
+  }
+  if ('Error' in message) {
+    return {
+      role: 'error',
+      thinking: '',
+      content: message.Error.message,
+      toolCalls: [],
     };
   }
   return {
