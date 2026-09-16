@@ -4,6 +4,12 @@ export interface WorkspaceRef {
   project_root: string;
 }
 
+export interface ClientInfo {
+  resource_id: string;
+  client_type: string;
+  name: string;
+}
+
 export interface WorkspaceInfo extends WorkspaceRef {
   manager: string;
   agents: string[];
@@ -135,6 +141,8 @@ export type ClientMessage =
 export type ServerMessage =
   | { type: 'log'; record: LogRecord }
   | { type: 'state.sync'; state: BackendState }
+  | { type: 'connection.registered'; id: string; client: ClientInfo }
+  | { type: 'connection.register_failed'; id: string; error: string }
   | { type: 'workspace.started'; id: string; workspace: WorkspaceInfo }
   | { type: 'workspace.start_failed'; id: string; error: string }
   | {
@@ -194,6 +202,18 @@ export function parseServerMessage(raw: string): ServerMessage | null {
               : [],
           },
         };
+      case 'connection.registered':
+        return typeof value.id === 'string' &&
+          isRecord(value.client) &&
+          typeof value.client.resource_id === 'string' &&
+          typeof value.client.client_type === 'string' &&
+          typeof value.client.name === 'string'
+          ? (value as ServerMessage)
+          : null;
+      case 'connection.register_failed':
+        return typeof value.id === 'string' && typeof value.error === 'string'
+          ? (value as ServerMessage)
+          : null;
       case 'workspace.started':
         return isRecord(value.workspace) ? (value as ServerMessage) : null;
       case 'workspace.start_failed':

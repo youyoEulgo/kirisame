@@ -6,6 +6,7 @@ import {
   type AgentHistory,
   type AgentMessage,
   type AgentState,
+  type ClientInfo,
   type ClientMessage,
   type ResourceRef,
   type ToolCall,
@@ -60,6 +61,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   const endpoint = ref(DEFAULT_ENDPOINT);
   const connectionStatus = ref<ConnectionStatus>('offline');
   const connectionError = ref('');
+  const registeredClient = ref<ClientInfo | null>(null);
   const workspaces = ref<WorkspaceInfo[]>([]);
   const agentStates = ref<AgentState[]>([]);
   const selectedWorkspaceKey = ref('');
@@ -172,9 +174,6 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         },
       };
       nextSocket.send(JSON.stringify(registration));
-      reconnectAttempt = 0;
-      connectionStatus.value = 'online';
-      connectionError.value = '';
     };
 
     nextSocket.onmessage = (event) => {
@@ -191,6 +190,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       if (socket !== nextSocket) return;
       socket = null;
       connectionStatus.value = 'offline';
+      registeredClient.value = null;
       clearCurrentMessages();
       rejectPendingMclCommands('Backend WebSocket disconnected');
       if (shouldReconnect) scheduleReconnect();
@@ -204,6 +204,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     closeSocket();
     clearCurrentMessages();
     connectionStatus.value = 'offline';
+    registeredClient.value = null;
   }
 
   function selectWorkspace(key: string) {
@@ -416,6 +417,18 @@ export const useWorkbenchStore = defineStore('workbench', () => {
   function handleServerMessage(event: ReturnType<typeof parseServerMessage> & object) {
     if (!event) return;
     switch (event.type) {
+      case 'connection.registered':
+        registeredClient.value = event.client;
+        connectionStatus.value = 'online';
+        connectionError.value = '';
+        reconnectAttempt = 0;
+        break;
+      case 'connection.register_failed':
+        connectionError.value = `Registration failed: ${event.error}`;
+        connectionStatus.value = 'offline';
+        registeredClient.value = null;
+        socket?.close();
+        break;
       case 'state.sync':
         synchronizeWorkspaces(event.state.workspaces);
         synchronizeAgentStates(event.state.agents);
@@ -743,6 +756,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     endpoint,
     connectionStatus,
     connectionError,
+    registeredClient,
     workspaces,
     agentStates,
     selectedWorkspaceKey,
