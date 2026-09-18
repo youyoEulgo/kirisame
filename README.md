@@ -25,7 +25,7 @@ cargo run -p margatroid_cli -- workspace up ../demo_workspace/margatroid-workspa
 
 UI 使用 daemon 的 `state.sync` 快照维护 Workspace、Agent动态可见资源和对话历史。对话历史来自后端
 各 Agent SQLite 的 `history_messages`，其中只包含可展示内容；用于模型上下文恢复的
-`realtime_messages` 不会发送给 UI。Workspace、Agent、可见资源和工具调用统一使用完整ResourceId；
+state（`setting` 表中的 `realtime`）不会发送给 UI。Workspace、Agent、可见资源和工具调用统一使用完整ResourceId；
 当前选中Agent的可用Skill来自其`visible_resources`中以`skill:`开头的资源；Skill与其他资源一样由
 动态可见性控制，不保留前端私有的加载状态。
 Agent是否正在处理交互最终以同一快照的`working`字段为准；消息发出后到首个工作快照到达前，
