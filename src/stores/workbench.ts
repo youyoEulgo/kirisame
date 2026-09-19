@@ -315,8 +315,13 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         type: 'user',
         content: text,
       };
-      await executeMclCommand('INJECT ? TO recent_conversation FROM msg', userMessage, id);
-      await executeMclCommand('EMIT EFFECT history_append', userMessage, id);
+      await executeMclCommand('INJECT ? TO msg.recent_conversation', userMessage, id);
+      await executeMclCommand(
+        'INJECT msg.recent_conversation TO realtime_state.recent_conversation',
+        null,
+        id,
+      );
+      await executeMclCommand('EMIT EFFECT history_append FROM ?', userMessage, id);
     }
     const mapping = selectedAgentState.value?.resources.find(
       (entry) => entry.resource_id === resourceId,
@@ -393,9 +398,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
     )
       return null;
     const id = crypto.randomUUID();
-    const command = visible
-      ? `INJECT ? TO ${source.inner_id} FROM ${source.block_id}`
-      : `DELETE ${source.inner_id} FROM ${source.block_id} WHERE id == ?`;
+    const resources = visible
+      ? [...new Set([...state.visible_resources, resourceId])]
+      : state.visible_resources.filter((resource) => resource !== resourceId);
+    const command = `INJECT ? TO ${source.block_id}.${source.inner_id}`;
     const request: ClientMessage = {
       type: 'mcl.command',
       id,
@@ -403,7 +409,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         workspace: workspaceReference(workspace),
         agent: selectedAgent.value,
         command,
-        binding: resourceId,
+        binding: resources,
       },
     };
     socket.send(JSON.stringify(request));
@@ -716,6 +722,9 @@ export const useWorkbenchStore = defineStore('workbench', () => {
         ? { ...state.visibility_source }
         : null,
       resources: (state.resources ?? []).map((entry) => ({ ...entry })),
+      exposed: Object.fromEntries(
+        Object.entries(state.exposed ?? {}).map(([domain, fields]) => [domain, { ...fields }]),
+      ),
       mcl: state.mcl ? { ...state.mcl } : null,
       total_input_tokens: state.total_input_tokens ?? 0,
       total_output_tokens: state.total_output_tokens ?? 0,

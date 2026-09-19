@@ -34,6 +34,7 @@ export interface AgentState {
   default_visibility_source: BlockPath | null;
   visibility_source: BlockPath | null;
   resources: AgentResource[];
+  exposed: Record<string, Record<string, unknown>>;
   mcl: AgentMclState | null;
   total_input_tokens: number;
   total_output_tokens: number;
