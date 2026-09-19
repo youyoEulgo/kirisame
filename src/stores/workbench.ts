@@ -310,18 +310,20 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       throw new Error('Connect to the daemon before loading a Skill');
     }
     const id = crypto.randomUUID();
+    const workspaceRef = workspaceReference(workspace);
+    const agentRef = selectedAgent.value || workspace.manager;
     if (text) {
-      const userMessage = {
-        type: 'user',
-        content: text,
-      };
-      await executeMclCommand('INJECT ? TO msg.recent_conversation', userMessage, id);
-      await executeMclCommand(
-        'INJECT msg.recent_conversation TO realtime_state.recent_conversation',
-        null,
-        id,
+      socket.send(
+        JSON.stringify({
+          type: 'agent.message',
+          id,
+          message: {
+            workspace: workspaceRef,
+            agent: agentRef,
+            message: { Inject: { messages: [{ User: { content: text } }] } },
+          },
+        }),
       );
-      await executeMclCommand('EMIT EFFECT history_append FROM ?', userMessage, id);
     }
     const mapping = selectedAgentState.value?.resources.find(
       (entry) => entry.resource_id === resourceId,
@@ -333,8 +335,8 @@ export const useWorkbenchStore = defineStore('workbench', () => {
       type: 'agent.message',
       id,
       message: {
-        workspace: workspaceReference(workspace),
-        agent: selectedAgent.value,
+        workspace: workspaceRef,
+        agent: agentRef,
         message: {
           Assistant: {
             reasoning: null,
@@ -688,9 +690,10 @@ export const useWorkbenchStore = defineStore('workbench', () => {
 
   function synchronizeHistories(histories: AgentHistory[]) {
     messages.value = histories.flatMap((history) =>
-      history.messages.map((entry) => {
+      history.messages.flatMap((entry) => {
         const decoded = decodeMessage(entry.message);
-        return {
+        if (!decoded) return [];
+        return [{
           key: `history:${workspaceKey(history.workspace)}:${history.agent}:${entry.sequence}`,
           id: entry.turn_id,
           sequence: entry.sequence,
@@ -701,7 +704,7 @@ export const useWorkbenchStore = defineStore('workbench', () => {
           content: decoded.content,
           toolCalls: decoded.toolCalls,
           timestamp: entry.created_at_ms,
-        };
+        }];
       }),
     );
   }
@@ -811,7 +814,8 @@ function decodeMessage(message: AgentMessage): {
   thinking: string;
   content: string;
   toolCalls: ToolCall[];
-} {
+} | null {
+  if ('Inject' in message) return null;
   if ('User' in message) {
     return {
       role: 'user',

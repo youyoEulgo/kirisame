@@ -85,7 +85,8 @@ export type AgentMessage =
   | { User: { content: string } }
   | { Assistant: { reasoning: string | null; content: string | null; tool_calls: ToolCall[] } }
   | { Tool: { resource_id: ResourceRef; tool_call_id: string; content: string } }
-  | { Error: { message: string } };
+  | { Error: { message: string } }
+  | { Inject: { messages: AgentMessage[] } };
 
 export interface LogField {
   name: string;
