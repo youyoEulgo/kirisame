@@ -841,7 +841,7 @@ function decodeMessage(message: AgentMessage): {
     };
   }
   return {
-    role: 'tool',
+    role: message.Tool.failed ? 'error' : 'tool',
     thinking: '',
     content: message.Tool.content,
     toolCalls: [],

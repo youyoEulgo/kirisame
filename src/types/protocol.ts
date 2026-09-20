@@ -84,7 +84,14 @@ export interface ToolCall {
 export type AgentMessage =
   | { User: { content: string } }
   | { Assistant: { reasoning: string | null; content: string | null; tool_calls: ToolCall[] } }
-  | { Tool: { resource_id: ResourceRef; tool_call_id: string; content: string } }
+  | {
+      Tool: {
+        resource_id: ResourceRef;
+        tool_call_id: string;
+        content: string;
+        failed: boolean;
+      };
+    }
   | { Error: { message: string } }
   | { Inject: { messages: AgentMessage[] } };
 
